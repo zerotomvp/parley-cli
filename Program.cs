@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Completions;
 using ParleyCli;
 using ParleyCli.Commands;
+using ParleyCli.Commands.Admin;
 using ParleyCli.Logging;
 using Serilog;
 using Serilog.Core;
@@ -23,6 +24,7 @@ rootCommand.Directives.Add(new SuggestDirective());
 rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());
 rootCommand.Subcommands.Add(LogCommand.Create());
+rootCommand.Subcommands.Add(AdminCommand.Create());
 
 try
 {

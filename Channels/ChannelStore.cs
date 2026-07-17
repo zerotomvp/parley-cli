@@ -136,6 +136,45 @@ public class ChannelStore
         }
     }
 
+    /// <summary>
+    /// Removes the last message (highest seq) from a channel and rolls back any cursor that
+    /// had already read it, then returns the removed message. Guards against a concurrent
+    /// append: throws if the current last seq isn't <paramref name="expectedLastSeq"/>.
+    /// For manual operator use (see the <c>admin</c> command).
+    /// </summary>
+    public Message Pop(string channel, int expectedLastSeq)
+    {
+        using var _ = AcquireLock(channel);
+
+        var all = ReadAll(channel);
+        if (all.Count == 0)
+            throw new ArgumentException($"Channel '{channel}' has no messages to pop.");
+
+        var popped = all[^1];
+        if (popped.Seq != expectedLastSeq)
+            throw new ArgumentException(
+                $"Channel '{channel}' changed since you looked (last is now #{popped.Seq}, expected #{expectedLastSeq}); aborted.");
+
+        all.RemoveAt(all.Count - 1);
+        var path = TranscriptPath(channel);
+        File.WriteAllText(path,
+            all.Count == 0 ? "" : string.Join("\n", all.Select(m => JsonSerializer.Serialize(m, JsonOpts))) + "\n");
+
+        ClampCursors(channel, all.Count); // seqs are contiguous 1..N, so the new max seq == remaining count
+        return popped;
+    }
+
+    /// <summary>Clamps every cursor for a channel down to <paramref name="max"/> (after a message was removed).</summary>
+    private void ClampCursors(string channel, int max)
+    {
+        if (!Directory.Exists(ChannelsDir)) return;
+        foreach (var file in Directory.GetFiles(ChannelsDir, $"{channel}.*.cursor"))
+        {
+            if (int.TryParse(File.ReadAllText(file).Trim(), out var v) && v > max)
+                File.WriteAllText(file, max.ToString());
+        }
+    }
+
     private FileStream AcquireLock(string channel)
     {
         var lockPath = LockPath(channel);

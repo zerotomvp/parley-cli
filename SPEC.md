@@ -41,6 +41,10 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 **Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `1` error · `130` interrupted.
 
+### Admin (operator only)
+
+`parley admin` groups human-operator maintenance — **not for models**. Currently: `parley admin pop <channel>` removes the last message (highest seq) and rolls back any cursor that had read it (so it isn't skipped). Asks for confirmation unless `--yes`; refuses non-interactively without `--yes`; aborts if the channel changed since it read the last message.
+
 stdout carries message data only; all status/errors go to stderr (pipe-safe).
 
 ## Protocol
