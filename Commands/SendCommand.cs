@@ -15,11 +15,7 @@ public static class SendCommand
 {
     public static Command Create()
     {
-        var channelArg = new Argument<string?>("channel")
-        {
-            Description = "Channel name (default: default)",
-            Arity = ArgumentArity.ZeroOrOne
-        };
+        var channelArg = new Argument<string>("channel") { Description = "Channel name" };
         var messageOpt = new Option<string?>("--message", "-m")
         {
             Description = "Message body (omit to read from stdin)"
@@ -45,7 +41,7 @@ public static class SendCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
 
-            var channel = ResolveChannel(pr.GetValue(channelArg));
+            var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveId(pr);
             var wait = pr.GetValue(waitOpt);
             var timeout = pr.GetValue(timeoutOpt);

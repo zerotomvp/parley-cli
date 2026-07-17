@@ -25,13 +25,6 @@ public static class CommandHelpers
         WriteIndented = false
     };
 
-    /// <summary>Channel used when none is given on the command line.</summary>
-    public const string DefaultChannel = "default";
-
-    /// <summary>Resolves and validates the channel from an optional positional (falls back to the default).</summary>
-    public static string ResolveChannel(string? value) =>
-        ChannelStore.Validate("channel", string.IsNullOrWhiteSpace(value) ? DefaultChannel : value);
-
     /// <summary>Applies the --log-level global option to the active logging switch.</summary>
     public static void ApplyLogLevel(ParseResult pr)
     {
