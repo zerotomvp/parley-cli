@@ -229,8 +229,16 @@ public class ChannelStore
         if (File.Exists(path)) File.Delete(path);
     }
 
+    // 2-arg open only. open(2) is variadic — `int open(const char*, int, ...)` — and the
+    // creation `mode` is the variadic argument. On Apple arm64 variadic args pass on the
+    // STACK, but a fixed-signature P/Invoke passes `mode` in a register (x2), so the kernel
+    // reads an uninitialized stack slot and the file gets a RANDOM permission mode (observed:
+    // 000/005/140/751 across fresh channels → later appends fail EACCES). Linux/x64 pass
+    // variadic args in registers, so it only broke on arm64 macOS. We sidestep the trap by
+    // never passing a mode: the file is created ahead of time via a managed API (see
+    // AtomicAppend) and opened here without O_CREAT, so this call is not variadic.
     [DllImport("libc", SetLastError = true, EntryPoint = "open")]
-    private static extern int NativeOpen(string pathname, int flags, int mode);
+    private static extern int NativeOpen(string pathname, int flags);
 
     [DllImport("libc", SetLastError = true, EntryPoint = "write")]
     private static extern nint NativeWrite(int fd, byte[] buf, nuint count);
@@ -256,11 +264,28 @@ public class ChannelStore
             return;
         }
 
+        // Create the file (with a deterministic 0644) through the managed API *before* the
+        // native open, so the append path never passes a creation mode to variadic open(2)
+        // — the arm64-macOS trap documented on NativeOpen. Race-safe: CreateNew is an atomic
+        // O_EXCL create, and losing the race just means another writer got there first.
+        if (!File.Exists(path))
+        {
+            try { using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite)) { } }
+            catch (IOException) { /* another process created it concurrently — fine */ }
+            try
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite
+                                         | UnixFileMode.GroupRead | UnixFileMode.OtherRead); // 0644
+            }
+            catch { /* best-effort; managed create already yields <= 0644 under a normal umask */ }
+        }
+
         const int O_WRONLY = 0x1;
-        var O_CREAT = OperatingSystem.IsMacOS() ? 0x0200 : 0x0040;
         var O_APPEND = OperatingSystem.IsMacOS() ? 0x0008 : 0x0400;
 
-        var fd = NativeOpen(path, O_WRONLY | O_CREAT | O_APPEND, 0x1A4 /* 0644 */);
+        // 2-arg open (no O_CREAT, no mode) → not variadic → ABI-correct on arm64 macOS too.
+        // O_APPEND is what gives the atomic-append-at-true-EOF guarantee; O_CREAT was orthogonal.
+        var fd = NativeOpen(path, O_WRONLY | O_APPEND);
         if (fd < 0)
             throw new IOException($"open('{path}') failed (errno {Marshal.GetLastWin32Error()}).");
         try
