@@ -14,7 +14,10 @@ namespace ParleyCli.Channels;
 /// </summary>
 public class ChannelStore
 {
-    private static readonly Regex NameRe = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+    // No '.' allowed: '.' is the field separator in cursor filenames ({channel}.{id}.cursor),
+    // so permitting it in either name would make that encoding ambiguous (distinct pairings
+    // could map to one file) and would admit '.'/'..' path traversal.
+    private static readonly Regex NameRe = new("^[A-Za-z0-9_-]+$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -37,25 +40,44 @@ public class ChannelStore
 
     private string TranscriptPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.jsonl");
     private string LockPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.lock");
-    private string CursorPath(string channel, string id) => Path.Combine(ChannelsDir, $"{channel}.{id}.cursor");
+    // Cursor is tagged with the sender's unique session id, so any number of sessions
+    // can share a channel and each track its own read position independently.
+    private string CursorPath(string channel, string sid) => Path.Combine(ChannelsDir, $"{channel}.{sid}.cursor");
 
-    /// <summary>Validates a channel or participant id used verbatim in a filename.</summary>
+    /// <summary>Validates a channel name or session id used verbatim in a filename.</summary>
     public static string Validate(string kind, string value)
     {
         if (string.IsNullOrWhiteSpace(value) || !NameRe.IsMatch(value) || value.Length > 100)
             throw new ArgumentException(
-                $"Invalid {kind} '{value}': use only letters, digits, '.', '_', '-' (max 100 chars).");
+                $"Invalid {kind} '{value}': use only letters, digits, '_', '-' (no dots; max 100 chars).");
         return value;
     }
 
-    /// <summary>Appends a message under the channel lock and returns it with its assigned seq.</summary>
-    public Message Append(string channel, string from, string text)
+    /// <summary>
+    /// Appends a message under the channel lock and returns it with its assigned seq.
+    /// When <paramref name="expectNew"/> is set, first asserts (atomically, under the same
+    /// lock) that the channel is still fresh — no sender has spoken twice and this session
+    /// has not spoken at all — so an opener can detect that the channel name collided with
+    /// an existing conversation. Throws <see cref="ArgumentException"/> if not fresh.
+    /// </summary>
+    public Message Append(string channel, string from, string sid, string text, bool expectNew = false)
     {
         Directory.CreateDirectory(ChannelsDir);
         using var _ = AcquireLock(channel);
 
-        var seq = ReadAll(channel).Count + 1;
-        var msg = new Message(seq, DateTimeOffset.UtcNow.ToString("o"), from, text);
+        var all = ReadAll(channel);
+        if (expectNew)
+        {
+            var mine = all.Count(m => m.Sid == sid);
+            var maxPerSender = all.GroupBy(m => m.Sid).Select(g => g.Count()).DefaultIfEmpty(0).Max();
+            if (mine > 0 || maxPerSender > 1)
+                throw new ArgumentException(
+                    $"--expect-new: channel '{channel}' is not fresh ({all.Count} message(s) already present). " +
+                    "The name likely collides with another conversation — use a channel with a fresh random suffix.");
+        }
+
+        var seq = all.Count + 1;
+        var msg = new Message(seq, DateTimeOffset.UtcNow.ToString("o"), from, sid, text);
         File.AppendAllText(TranscriptPath(channel), JsonSerializer.Serialize(msg, JsonOpts) + "\n");
         return msg;
     }
@@ -76,32 +98,32 @@ public class ChannelStore
         return result;
     }
 
-    public int GetCursor(string channel, string id)
+    public int GetCursor(string channel, string sid)
     {
-        var path = CursorPath(channel, id);
+        var path = CursorPath(channel, sid);
         return File.Exists(path) && int.TryParse(File.ReadAllText(path).Trim(), out var v) ? v : 0;
     }
 
-    public void SetCursor(string channel, string id, int seq)
+    public void SetCursor(string channel, string sid, int seq)
     {
         Directory.CreateDirectory(ChannelsDir);
-        File.WriteAllText(CursorPath(channel, id), seq.ToString());
+        File.WriteAllText(CursorPath(channel, sid), seq.ToString());
     }
 
     /// <summary>
-    /// Blocks until a peer (from != <paramref name="me"/>) message with seq &gt;
-    /// <paramref name="afterSeq"/> exists, or the timeout elapses. Returns the full
-    /// transcript snapshot that satisfied the wait (or the last snapshot on timeout,
-    /// with <paramref name="satisfied"/> = false). Polls every 200ms.
+    /// Blocks until a message from another session (sid != <paramref name="mySid"/>) with
+    /// seq &gt; <paramref name="afterSeq"/> exists, or the timeout elapses. Returns the full
+    /// transcript snapshot that satisfied the wait (or the last snapshot on timeout, with
+    /// <paramref name="satisfied"/> = false). Polls every 200ms.
     /// </summary>
     public async Task<(bool satisfied, List<Message> snapshot)> WaitForPeer(
-        string channel, string me, int afterSeq, int timeoutSeconds, CancellationToken ct)
+        string channel, string mySid, int afterSeq, int timeoutSeconds, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         while (true)
         {
             var all = ReadAll(channel);
-            if (all.Any(m => m.From != me && m.Seq > afterSeq))
+            if (all.Any(m => m.Sid != mySid && m.Seq > afterSeq))
                 return (true, all);
 
             if (sw.Elapsed.TotalSeconds >= timeoutSeconds)

@@ -6,6 +6,7 @@ namespace ParleyCli.Models;
 /// </summary>
 /// <param name="Seq">Monotonic 1-based position in the channel.</param>
 /// <param name="Ts">ISO-8601 UTC timestamp the message was appended.</param>
-/// <param name="From">Participant id that sent it.</param>
+/// <param name="From">Human-readable display label of the sender (e.g. "claude").</param>
+/// <param name="Sid">Sender's unique session id — the identity used to key cursors and filter "not me".</param>
 /// <param name="Text">Message body.</param>
-public record Message(int Seq, string Ts, string From, string Text);
+public record Message(int Seq, string Ts, string From, string Sid, string Text);

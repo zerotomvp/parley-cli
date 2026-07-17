@@ -12,7 +12,7 @@ public static class LogCommand
     public static Command Create()
     {
         var channelArg = new Argument<string>("channel") { Description = "Channel name" };
-        var jsonOpt = new Option<bool>("--json") { Description = "Emit messages as JSONL" };
+        var jsonOpt = new Option<bool>("--json") { Description = "Emit messages as JSONL (includes each sender's session id)" };
 
         var command = new Command("log", "Print the full transcript of a channel (does not advance any cursor).")
         {

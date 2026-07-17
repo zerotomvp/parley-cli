@@ -33,38 +33,39 @@ public static class CommandHelpers
     }
 
     /// <summary>
-    /// Resolves this session's participant id. Precedence: <c>--as</c> → <c>PARLEY_ID</c> env →
-    /// auto-detect from the runtime's own session marker (which persists across the agent's
-    /// separate shell invocations). Throws if none apply.
+    /// This session's identity on a channel: a unique <see cref="Sid"/> (session id — used to
+    /// tag cursors and filter "not me", so any number of sessions can share a channel) and a
+    /// human-readable <see cref="Label"/> shown as the message sender.
     /// </summary>
-    public static string ResolveId(ParseResult pr)
+    public readonly record struct Identity(string Sid, string Label);
+
+    /// <summary>
+    /// Resolves this session's identity. Precedence: an explicit <c>--as</c>/<c>PARLEY_ID</c>
+    /// (sets both sid and label, for manual/testing use) → the agent runtime's own session id,
+    /// which persists across the agent's separate shells (<c>CODEX_THREAD_ID</c> → codex, checked
+    /// first for the nested case; else <c>CLAUDE_CODE_SESSION_ID</c> → claude). Throws if none apply.
+    /// </summary>
+    public static Identity ResolveIdentity(ParseResult pr)
     {
         var explicitId = pr.GetValue(GlobalOptions.As)
                          ?? Environment.GetEnvironmentVariable("PARLEY_ID");
         if (!string.IsNullOrWhiteSpace(explicitId))
-            return ChannelStore.Validate("participant id", explicitId);
+        {
+            var v = ChannelStore.Validate("participant id", explicitId);
+            return new Identity(v, v);
+        }
 
-        var detected = DetectRuntimeId();
-        if (detected != null)
-            return detected;
+        var codex = Environment.GetEnvironmentVariable("CODEX_THREAD_ID");
+        if (!string.IsNullOrWhiteSpace(codex))
+            return new Identity(ChannelStore.Validate("session id", codex), "codex");
+
+        var claude = Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
+        if (!string.IsNullOrWhiteSpace(claude))
+            return new Identity(ChannelStore.Validate("session id", claude), "claude");
 
         throw new ArgumentException(
-            "Could not determine participant id. Running under Claude Code or Codex sets it " +
+            "Could not determine session identity. Running under Claude Code or Codex sets it " +
             "automatically; otherwise pass --as <id> or set the PARLEY_ID env var.");
-    }
-
-    /// <summary>
-    /// Infers the participant from the agent runtime's injected session env var. Codex is
-    /// checked first: a Codex session nested inside Claude Code is the active driver, so its
-    /// marker should win when both are present.
-    /// </summary>
-    private static string? DetectRuntimeId()
-    {
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODEX_THREAD_ID")))
-            return "codex";
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID")))
-            return "claude";
-        return null;
     }
 
     /// <summary>Writes messages to stdout — human-readable by default, one compact JSON object per line with --json.</summary>

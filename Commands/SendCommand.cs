@@ -15,25 +15,32 @@ public static class SendCommand
 {
     public static Command Create()
     {
-        var channelArg = new Argument<string>("channel") { Description = "Channel name" };
+        var channelArg = new Argument<string>("channel")
+        {
+            Description = "Channel name. Add a random 5-letter suffix to avoid collisions, e.g. review-xyzab."
+        };
         var messageOpt = new Option<string?>("--message", "-m")
         {
             Description = "Message body (omit to read from stdin)"
         };
         var waitOpt = new Option<bool>("--wait", "-w")
         {
-            Description = "After sending, block until the peer replies and print the reply"
+            Description = "After sending, block until another session replies and print the reply"
         };
         var timeoutOpt = new Option<int>("--timeout", "-t")
         {
             Description = "Seconds to wait for a reply (with --wait)",
             DefaultValueFactory = _ => 90
         };
+        var expectNewOpt = new Option<bool>("--expect-new")
+        {
+            Description = "Assert the channel is fresh (empty, or one opener message per other session) before sending; fails if the name already has a conversation"
+        };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit the reply as JSONL (with --wait)" };
 
         var command = new Command("send", "Post a message to a channel (body from stdin, or -m).")
         {
-            channelArg, messageOpt, waitOpt, timeoutOpt, jsonOpt
+            channelArg, messageOpt, waitOpt, timeoutOpt, expectNewOpt, jsonOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
@@ -42,9 +49,10 @@ public static class SendCommand
             var store = Cli.Services.GetRequiredService<ChannelStore>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
-            var me = ResolveId(pr);
+            var me = ResolveIdentity(pr);
             var wait = pr.GetValue(waitOpt);
             var timeout = pr.GetValue(timeoutOpt);
+            var expectNew = pr.GetValue(expectNewOpt);
             var json = pr.GetValue(jsonOpt);
 
             var inline = pr.GetValue(messageOpt);
@@ -56,24 +64,24 @@ public static class SendCommand
                 return 1;
             }
 
-            var sent = store.Append(channel, me, text);
-            Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me)}[/]");
+            var sent = store.Append(channel, me.Label, me.Sid, text, expectNew);
+            Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Label)}[/]");
 
             if (!wait) return 0;
 
             Stderr.MarkupLine($"[cyan]Waiting up to {timeout}s for a reply…[/]");
-            var (satisfied, snapshot) = await store.WaitForPeer(channel, me, sent.Seq, timeout, ct);
+            var (satisfied, snapshot) = await store.WaitForPeer(channel, me.Sid, sent.Seq, timeout, ct);
 
             if (!satisfied)
             {
                 Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --wait[/] to keep waiting.");
-                return 2; // timeout: peer hasn't replied yet
+                return 2; // timeout: no other session has replied yet
             }
 
-            var cursor = store.GetCursor(channel, me);
-            var unread = snapshot.Where(m => m.Seq > cursor && m.From != me).ToList();
+            var cursor = store.GetCursor(channel, me.Sid);
+            var unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid).ToList();
             PrintMessages(unread, json);
-            store.SetCursor(channel, me, snapshot[^1].Seq);
+            store.SetCursor(channel, me.Sid, snapshot[^1].Seq);
             return 0;
         }));
 

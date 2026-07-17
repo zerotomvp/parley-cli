@@ -1,55 +1,66 @@
 # parley-cli
 
-A two-party message channel so **one Claude Code session and one Codex session** can coordinate over a shared, persisted transcript. Follows `docs/CLIs.md`.
+A message channel so coordinating agent sessions (typically one Claude Code + one Codex, but any number) can talk over a shared, persisted transcript instead of relaying through a human. Follows `docs/CLIs.md`.
 
 ## Model
 
-- **No daemon.** Every invocation is a short-lived process over shared files. State lives on disk, so two independent agent runtimes coordinate through the filesystem.
+- **No daemon.** Every invocation is a short-lived process over shared files. State lives on disk, so independent agent runtimes coordinate through the filesystem.
 - **Store:** `~/.parley/channels/` (override with the `PARLEY_HOME` env var — used by tests).
-  - `<channel>.jsonl` — append-only transcript, one JSON message per line (`{seq, ts, from, text}`). `text` may contain newlines (JSON-escaped).
-  - `<channel>.<id>.cursor` — each participant's last-read seq.
-  - `<channel>.lock` — advisory write lock (append serializes through it; reads are lock-free).
-- **Identity — auto-detected, zero config.** `recv` returns *peer* messages (`from != me`) past this session's cursor, so each side must know which side it is. An agent can't persist its own env var (every Bash call is a fresh shell), but the runtime injects its **own** session marker into every shell it spawns — so identity is read from that:
-  - `CODEX_THREAD_ID` present → `codex` (checked first: a Codex nested in Claude Code is the active driver)
-  - else `CLAUDE_CODE_SESSION_ID` present → `claude`
-  - Override precedence: `--as <id>` → `PARLEY_ID` env → auto-detect → error.
-- **Channel is a required argument** — the two sides must agree on a name. There is deliberately no default: a shared `default` would let unrelated session-pairs collide on one transcript.
+  - `<channel>.jsonl` — append-only transcript, one JSON message per line (`{seq, ts, from, sid, text}`). `text` may contain newlines (JSON-escaped).
+  - `<channel>.<sid>.cursor` — each **session's** last-read seq, keyed by session id (see Identity) so any number of sessions each track their own position.
+  - `<channel>.lock` — advisory write lock (appends serialize through it; reads are lock-free).
+- **Identity — auto-detected, zero config.** Each message records two things: a unique **sid** (session id — used to key cursors and to filter "not me") and a human **label** (`from`, shown in the transcript). An agent can't persist its own env var (every Bash call is a fresh shell), but the runtime injects its own session id into every shell it spawns, so identity is read from that:
+  - `CODEX_THREAD_ID` present → sid = that id, label = `codex` (checked first: a Codex nested in Claude Code is the active driver)
+  - else `CLAUDE_CODE_SESSION_ID` present → sid = that id, label = `claude`
+  - Override: `--as <id>` / `PARLEY_ID` env sets **both** sid and label (for manual/testing use). Precedence: `--as`/`PARLEY_ID` → auto-detect → error.
+  - Because identity is the session id, two same-type sessions (e.g. two Claude Codes) get distinct cursors and correctly see each other's messages — that's what makes >2 participants work.
+- **Channel is a required argument.** No default: a shared default would let unrelated groups collide on one transcript.
+
+## Avoiding channel-name collisions
+
+The channel namespace is flat and unguarded, so two unrelated groups could both pick `review`. Two conventions prevent that:
+
+- **Add a random 5-lowercase-letter suffix** to the channel name — `review-xyzab`. This is guidance for whoever picks the name (a human or the opening model); parley does not mint it.
+- **`send --expect-new`** asserts (atomically, under the append lock) that the channel is still fresh — empty, or holding at most one opener message per *other* session and none from me — before sending. If the name already has a real conversation, it errors instead of joining. Openers should use it on their first message.
+
+Also: **prefer single-shot messages** (say it in one `send`) so a channel stays in the clean "one opener per session" shape that `--expect-new` recognizes and so the transcript reads cleanly.
 
 ## Blocking within a turn, polling across turns
 
-`--wait` blocks the process until the peer speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. The default timeout is **90s**, which sits under the ~120s agent-harness command limit: on timeout the call exits **2** and tells you to run again. So it feels live inside a turn and degrades to a re-poll across turns. Bump `--timeout` only if you know the harness allows a longer command.
+`--wait` blocks the process until another session speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. The default timeout is **90s**, which sits under the ~120s agent-harness command limit: on timeout the call exits **2** and tells you to run again. It feels live inside a turn and degrades to a re-poll across turns. Bump `--timeout` only if you know the harness allows a longer command. `--wait` never holds the write lock, so two sessions can both sit in `send --wait` without deadlocking.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `parley send <channel> [--wait]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. `--wait` blocks after sending for the peer's reply and prints it. |
-| `parley recv <channel> [--wait]` | Print unread peer messages and advance the cursor. `--wait` blocks until one arrives. |
+| `parley send <channel> [--wait] [--expect-new]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. `--wait` blocks after sending for another session's reply and prints it. `--expect-new` guards against name collisions. |
+| `parley recv <channel> [--wait]` | Print unread messages from other sessions and advance this session's cursor. `--wait` blocks until one arrives. |
 | `parley log <channel>` | Print the full transcript. Does not touch any cursor. |
 
-`channel` is required (the two sides agree on a name). Shared: `--timeout <sec>` (default 90, on `--wait`), `--json` (emit JSONL instead of the human format), `--as <id>`.
+`channel` is required. Shared: `--timeout <sec>` (default 90, on `--wait`), `--json` (emit JSONL — includes each sender's `sid`), `--as <id>`.
 
-**Exit codes:** `0` ok · `2` `--wait` timed out (peer hasn't replied yet — run again) · `1` error · `130` interrupted.
+**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `1` error · `130` interrupted.
 
 stdout carries message data only; all status/errors go to stderr (pipe-safe).
 
-## Two-session protocol
+## Protocol
 
-Agree a channel name (unique to this pairing); identity is auto-detected. One side opens; the other catches up with `recv --wait`. Each turn is a single call:
+Agree a channel name with a random suffix; identity is auto-detected. The opener sends with `--expect-new`; others catch up with `recv --wait`. Each turn is a single call:
 
 ```bash
-# claude (opener) — detected as "claude"
-printf 'Here is the plan…\nThoughts?' | parley send review-42 --wait   # posts, blocks for reply
+# opener (detected as e.g. "claude")
+printf 'Here is the plan…\nThoughts?' | parley send review-xyzab --wait --expect-new
 
-# codex — detected as "codex"
-parley recv review-42 --wait                                          # catches the opener
-printf 'Looks good, but…' | parley send review-42 --wait              # replies, blocks for next
+# other side (detected as e.g. "codex")
+parley recv review-xyzab --wait                        # catches the opener
+printf 'Looks good, but…' | parley send review-xyzab --wait   # replies, blocks for next
 ```
 
-On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --wait` (don't re-send, or you'll duplicate). Free-form: either side may send several times; `recv` drains all unread.
+On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --wait` (don't re-send, or you'll duplicate). Free-form: a session may send several times; `recv` drains all unread from every other session.
 
 ## Notes
 
 - No settings/secrets, so no `Configuration/` layer — DI only carries the log-level switch and `ChannelStore`.
-- The wait loop polls file length every 200ms (robust on WSL; no inotify dependency).
-- Channel and participant ids are used verbatim in filenames and validated to `[A-Za-z0-9._-]` (blocks path traversal).
+- The wait loop polls every 200ms (robust on WSL; no inotify dependency).
+- Channel names and session ids are used verbatim in filenames, validated to `[A-Za-z0-9_-]` — no dots. Dots are excluded on purpose: `.` is the field separator in `<channel>.<sid>.cursor`, so allowing it in either would make that encoding ambiguous and admit `.`/`..` traversal. (Real session ids — UUIDs, `thr_…` — contain no dots.)
+- The write lock is held only for the brief append (read seq → write one line); a contended `send` retries every 50ms up to 10s, then errors. A process crash releases the lock (OS closes the handle).
