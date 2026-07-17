@@ -118,13 +118,6 @@ public static class CommandHelpers
             {
                 return 130; // interrupted (Ctrl+C)
             }
-            catch (ChannelLockException ex)
-            {
-                // Expected, retryable — clean message only, no fatal stack trace.
-                Log.Debug(ex, "Lock busy on {Channel}", ex.Channel);
-                Stderr.MarkupLine("[yellow]Busy:[/] {0}", Markup.Escape(ex.Message));
-                return 3; // channel busy — not completed, safe to retry
-            }
             catch (ArgumentException ex)
             {
                 Stderr.MarkupLine("[red]Error:[/] {0}", Markup.Escape(ex.Message));

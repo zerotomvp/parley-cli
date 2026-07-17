@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ParleyCli.Models;
@@ -6,15 +8,17 @@ using ParleyCli.Models;
 namespace ParleyCli.Channels;
 
 /// <summary>
-/// Filesystem-backed two-party channel. Each channel is an append-only JSONL
-/// transcript under the parley home dir (default <c>~/.parley</c>, overridable
-/// with the <c>PARLEY_HOME</c> env var). Writes serialize through a per-channel
-/// advisory lock file; reads are lock-free (append-only ⇒ a reader sees a
-/// consistent prefix). Each participant keeps its own read cursor.
+/// Filesystem-backed channel. Each channel is an append-only JSONL transcript under the parley
+/// home dir (default <c>~/.parley</c>, overridable with <c>PARLEY_HOME</c>). Appends are
+/// <b>lock-free</b>: each message is written as one atomic <c>O_APPEND</c> write, which the
+/// kernel serializes under the file's inode lock, so concurrent writers never interleave and no
+/// lock file is needed (this also sidesteps flock quirks inside sandboxes). Message <c>seq</c> is
+/// its 1-based line position, derived on read. Each participant keeps its own read cursor keyed by
+/// session id.
 /// </summary>
 public class ChannelStore
 {
-    // No '.' allowed: '.' is the field separator in cursor filenames ({channel}.{id}.cursor),
+    // No '.' allowed: '.' is the field separator in cursor filenames ({channel}.{sid}.cursor),
     // so permitting it in either name would make that encoding ambiguous (distinct pairings
     // could map to one file) and would admit '.'/'..' path traversal.
     private static readonly Regex NameRe = new("^[A-Za-z0-9_-]+$", RegexOptions.Compiled);
@@ -42,18 +46,6 @@ public class ChannelStore
     public string ChannelsDir => Path.Combine(_root, "channels");
 
     private string TranscriptPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.jsonl");
-    private string LockPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.lock");
-    // Sidecar holder metadata. Separate from the flock target (which is opened FileShare.None
-    // and so can't be read by a waiter); exists only while the lock is held.
-    private string OwnerPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.owner");
-
-    private static readonly TimeSpan LockTimeout = ReadLockTimeout();
-
-    private static TimeSpan ReadLockTimeout()
-    {
-        var env = Environment.GetEnvironmentVariable("PARLEY_LOCK_TIMEOUT_SECONDS");
-        return int.TryParse(env, out var s) && s > 0 ? TimeSpan.FromSeconds(s) : TimeSpan.FromSeconds(30);
-    }
     // Cursor is tagged with the sender's unique session id, so any number of sessions
     // can share a channel and each track its own read position independently.
     private string CursorPath(string channel, string sid) => Path.Combine(ChannelsDir, $"{channel}.{sid}.cursor");
@@ -68,20 +60,18 @@ public class ChannelStore
     }
 
     /// <summary>
-    /// Appends a message under the channel lock and returns it with its assigned seq.
-    /// When <paramref name="expectNew"/> is set, first asserts (atomically, under the same
-    /// lock) that the channel is still fresh — no sender has spoken twice and this session
-    /// has not spoken at all — so an opener can detect that the channel name collided with
-    /// an existing conversation. Throws <see cref="ArgumentException"/> if not fresh.
+    /// Appends a message as one atomic line and returns it with its assigned seq. Lock-free: the
+    /// single O_APPEND write is serialized by the kernel. When <paramref name="expectNew"/> is set,
+    /// asserts (best-effort — no lock) that the channel is still fresh (no sender has spoken twice
+    /// and this session hasn't spoken) so an opener can catch a name collision.
     /// </summary>
     public Message Append(string channel, string from, string sid, string text, bool expectNew = false, bool closed = false)
     {
         Directory.CreateDirectory(ChannelsDir);
-        using var _ = AcquireLock(channel, "append");
 
-        var all = ReadAll(channel);
         if (expectNew)
         {
+            var all = ReadAll(channel);
             var mine = all.Count(m => m.Sid == sid);
             var maxPerSender = all.GroupBy(m => m.Sid).Select(g => g.Count()).DefaultIfEmpty(0).Max();
             if (mine > 0 || maxPerSender > 1)
@@ -90,13 +80,17 @@ public class ChannelStore
                     "The name likely collides with another conversation — use a channel with a fresh random suffix.");
         }
 
-        var seq = all.Count + 1;
-        var msg = new Message(seq, DateTimeOffset.UtcNow.ToString("o"), from, sid, text, closed ? true : null);
-        File.AppendAllText(TranscriptPath(channel), JsonSerializer.Serialize(msg, JsonOpts) + "\n");
-        return msg;
+        var wire = new MessageWire(DateTimeOffset.UtcNow.ToString("o"), from, sid, text, closed ? true : null);
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(wire, JsonOpts) + "\n");
+        AtomicAppend(TranscriptPath(channel), bytes);
+
+        // seq = my line position. Re-reading is exact for the common sequential case; under a
+        // simultaneous append it may be off by one, which is harmless for coordination.
+        var seq = ReadAll(channel).Count;
+        return new Message(seq, wire.Ts, wire.From, wire.Sid, wire.Text, wire.Closed);
     }
 
-    /// <summary>Returns the full transcript in seq order (empty if the channel has no messages yet).</summary>
+    /// <summary>Returns the full transcript in order, assigning each message its 1-based seq (line position).</summary>
     public List<Message> ReadAll(string channel)
     {
         var path = TranscriptPath(channel);
@@ -106,8 +100,11 @@ public class ChannelStore
         foreach (var line in File.ReadAllLines(path))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
-            var msg = JsonSerializer.Deserialize<Message>(line, JsonOpts);
-            if (msg != null) result.Add(msg);
+            MessageWire? wire;
+            try { wire = JsonSerializer.Deserialize<MessageWire>(line, JsonOpts); }
+            catch { continue; } // tolerate a torn/partial line rather than crashing a read
+            if (wire == null) continue;
+            result.Add(new Message(result.Count + 1, wire.Ts, wire.From, wire.Sid, wire.Text, wire.Closed));
         }
         return result;
     }
@@ -147,34 +144,6 @@ public class ChannelStore
         }
     }
 
-    /// <summary>
-    /// Removes the last message (highest seq) from a channel and rolls back any cursor that
-    /// had already read it, then returns the removed message. Guards against a concurrent
-    /// append: throws if the current last seq isn't <paramref name="expectedLastSeq"/>.
-    /// For manual operator use (see the <c>admin</c> command).
-    /// </summary>
-    public Message Pop(string channel, int expectedLastSeq)
-    {
-        using var _ = AcquireLock(channel, "pop");
-
-        var all = ReadAll(channel);
-        if (all.Count == 0)
-            throw new ArgumentException($"Channel '{channel}' has no messages to pop.");
-
-        var popped = all[^1];
-        if (popped.Seq != expectedLastSeq)
-            throw new ArgumentException(
-                $"Channel '{channel}' changed since you looked (last is now #{popped.Seq}, expected #{expectedLastSeq}); aborted.");
-
-        all.RemoveAt(all.Count - 1);
-        var path = TranscriptPath(channel);
-        File.WriteAllText(path,
-            all.Count == 0 ? "" : string.Join("\n", all.Select(m => JsonSerializer.Serialize(m, JsonOpts))) + "\n");
-
-        ClampCursors(channel, all.Count); // seqs are contiguous 1..N, so the new max seq == remaining count
-        return popped;
-    }
-
     /// <summary>Channel names that have a transcript file (including ones emptied by <c>pop</c>).</summary>
     public List<string> ListChannels()
     {
@@ -203,23 +172,45 @@ public class ChannelStore
         return (all.Count, mtime);
     }
 
-    /// <summary>Deletes a channel's transcript, cursors, and lock file. Used by <c>admin prune</c>.</summary>
+    /// <summary>
+    /// Removes the last message (highest seq) and rolls back any cursor that had read it, then
+    /// returns the removed message. Guards against a concurrent append: throws if the current last
+    /// seq isn't <paramref name="expectedLastSeq"/>. Rewrites via a temp file + atomic rename.
+    /// For manual operator use (see the <c>admin</c> command).
+    /// </summary>
+    public Message Pop(string channel, int expectedLastSeq)
+    {
+        var all = ReadAll(channel);
+        if (all.Count == 0)
+            throw new ArgumentException($"Channel '{channel}' has no messages to pop.");
+
+        var popped = all[^1];
+        if (popped.Seq != expectedLastSeq)
+            throw new ArgumentException(
+                $"Channel '{channel}' changed since you looked (last is now #{popped.Seq}, expected #{expectedLastSeq}); aborted.");
+
+        all.RemoveAt(all.Count - 1);
+        var path = TranscriptPath(channel);
+        var tmp = path + ".tmp";
+        var body = all.Count == 0
+            ? ""
+            : string.Join("\n", all.Select(m =>
+                  JsonSerializer.Serialize(new MessageWire(m.Ts, m.From, m.Sid, m.Text, m.Closed), JsonOpts))) + "\n";
+        File.WriteAllText(tmp, body);
+        File.Move(tmp, path, overwrite: true);
+
+        ClampCursors(channel, all.Count); // seqs are contiguous 1..N, so the new max seq == remaining count
+        return popped;
+    }
+
+    /// <summary>Deletes a channel's transcript and cursors. Used by <c>admin prune</c>.</summary>
     public void DeleteChannel(string channel)
     {
         if (!Directory.Exists(ChannelsDir)) return;
-        using (AcquireLock(channel, "prune"))
-        {
-            SafeDelete(TranscriptPath(channel));
-            foreach (var f in Directory.GetFiles(ChannelsDir, $"{channel}.*.cursor"))
-                SafeDelete(f);
-        }
-        SafeDelete(LockPath(channel)); // after releasing the handle
-        SafeDelete(OwnerPath(channel));
-    }
-
-    private static void SafeDelete(string path)
-    {
-        if (File.Exists(path)) File.Delete(path);
+        SafeDelete(TranscriptPath(channel));
+        SafeDelete(TranscriptPath(channel) + ".tmp");
+        foreach (var f in Directory.GetFiles(ChannelsDir, $"{channel}.*.cursor"))
+            SafeDelete(f);
     }
 
     /// <summary>Clamps every cursor for a channel down to <paramref name="max"/> (after a message was removed).</summary>
@@ -233,92 +224,55 @@ public class ChannelStore
         }
     }
 
+    private static void SafeDelete(string path)
+    {
+        if (File.Exists(path)) File.Delete(path);
+    }
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "open")]
+    private static extern int NativeOpen(string pathname, int flags, int mode);
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "write")]
+    private static extern nint NativeWrite(int fd, byte[] buf, nuint count);
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "close")]
+    private static extern int NativeClose(int fd);
+
     /// <summary>
-    /// Acquires the channel's exclusive write lock, stamping a sidecar owner file (pid/op/time)
-    /// so a waiter that times out can name the holder. Retries every 50ms up to
-    /// <see cref="LockTimeout"/>. If it times out and the recorded holder is no longer alive,
-    /// it breaks the stale lock once and retries; otherwise it throws <see cref="ChannelLockException"/>.
-    /// The returned handle releases the lock and clears the owner file on dispose.
+    /// Appends <paramref name="data"/> as a single atomic write with no lock. On Unix this uses
+    /// POSIX <c>O_APPEND</c>: the kernel serializes each <c>write()</c> at the true end of file, so
+    /// concurrent writers never lose or interleave data — and no <c>flock</c> is involved, which is
+    /// what makes it work inside sandboxes that restrict flock. .NET's <c>FileMode.Append</c> can't
+    /// be used: it seeks to EOF at open time, so concurrent appends overwrite each other.
     /// </summary>
-    private IDisposable AcquireLock(string channel, string op)
+    private static void AtomicAppend(string path, byte[] data)
     {
-        var lockPath = LockPath(channel);
-        var sw = Stopwatch.StartNew();
-        var brokeStale = false;
-
-        while (true)
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
         {
-            try
-            {
-                var fs = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-                WriteOwner(channel, op);
-                return new LockHandle(fs, OwnerPath(channel));
-            }
-            catch (IOException)
-            {
-                if (sw.Elapsed >= LockTimeout)
-                {
-                    var holder = ReadOwner(channel);
-
-                    // Self-heal: if the recorded holder is dead, the flock should already be
-                    // released — break any stale lock file and retry once before giving up.
-                    if (!brokeStale && holder is not null && !IsProcessAlive(holder.Pid))
-                    {
-                        brokeStale = true;
-                        try { if (File.Exists(lockPath)) File.Delete(lockPath); } catch { /* best effort */ }
-                        sw.Restart();
-                        continue;
-                    }
-
-                    var who = holder is null
-                        ? "another process"
-                        : $"pid {holder.Pid} running '{holder.Op}' since {holder.Since}";
-                    throw new ChannelLockException(channel, holder,
-                        $"Channel '{channel}' is busy — held by {who}. Not completed; retry in a moment.");
-                }
-                Thread.Sleep(50);
-            }
-        }
-    }
-
-    private void WriteOwner(string channel, string op)
-    {
-        var owner = new LockOwner(Environment.ProcessId, op, DateTimeOffset.UtcNow.ToString("o"));
-        File.WriteAllText(OwnerPath(channel), JsonSerializer.Serialize(owner, JsonOpts));
-    }
-
-    private LockOwner? ReadOwner(string channel)
-    {
-        var path = OwnerPath(channel);
-        if (!File.Exists(path)) return null;
-        try { return JsonSerializer.Deserialize<LockOwner>(File.ReadAllText(path), JsonOpts); }
-        catch { return null; }
-    }
-
-    private static bool IsProcessAlive(int pid)
-    {
-        if (pid <= 0) return false;
-        if (OperatingSystem.IsLinux()) return Directory.Exists($"/proc/{pid}");
-        try { using var _ = System.Diagnostics.Process.GetProcessById(pid); return true; }
-        catch { return false; }
-    }
-
-    /// <summary>Holds the flock (via the open FileStream) and clears the owner file on release.</summary>
-    private sealed class LockHandle : IDisposable
-    {
-        private readonly FileStream _fs;
-        private readonly string _ownerPath;
-
-        public LockHandle(FileStream fs, string ownerPath)
-        {
-            _fs = fs;
-            _ownerPath = ownerPath;
+            // Windows: FILE_APPEND_DATA gives atomic append; FileMode.Append is fine there.
+            using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+            fs.Write(data, 0, data.Length);
+            fs.Flush();
+            return;
         }
 
-        public void Dispose()
+        const int O_WRONLY = 0x1;
+        var O_CREAT = OperatingSystem.IsMacOS() ? 0x0200 : 0x0040;
+        var O_APPEND = OperatingSystem.IsMacOS() ? 0x0008 : 0x0400;
+
+        var fd = NativeOpen(path, O_WRONLY | O_CREAT | O_APPEND, 0x1A4 /* 0644 */);
+        if (fd < 0)
+            throw new IOException($"open('{path}') failed (errno {Marshal.GetLastWin32Error()}).");
+        try
         {
-            _fs.Dispose(); // releases the flock
-            try { if (File.Exists(_ownerPath)) File.Delete(_ownerPath); } catch { /* best effort */ }
+            // Single write() of the whole line: atomic append under O_APPEND.
+            var written = NativeWrite(fd, data, (nuint)data.Length);
+            if (written < 0)
+                throw new IOException($"write('{path}') failed (errno {Marshal.GetLastWin32Error()}).");
+        }
+        finally
+        {
+            NativeClose(fd);
         }
     }
 }

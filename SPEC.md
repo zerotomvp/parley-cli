@@ -8,7 +8,7 @@ A message channel so coordinating agent sessions (typically one Claude Code + on
 - **Store:** `~/.parley/channels/` (override with the `PARLEY_HOME` env var — used by tests).
   - `<channel>.jsonl` — append-only transcript, one JSON message per line (`{seq, ts, from, sid, text}`). `text` may contain newlines (JSON-escaped).
   - `<channel>.<sid>.cursor` — each **session's** last-read seq, keyed by session id (see Identity) so any number of sessions each track their own position.
-  - `<channel>.lock` — advisory write lock (appends serialize through it; reads are lock-free).
+  - No lock files: appends are lock-free (see below).
 - **Identity — auto-detected, zero config.** Each message records two things: a unique **sid** (session id — used to key cursors and to filter "not me") and a human **label** (`from`, shown in the transcript). An agent can't persist its own env var (every Bash call is a fresh shell), but the runtime injects its own session id into every shell it spawns, so identity is read from that:
   - `CODEX_THREAD_ID` present → sid = that id, label = `codex` (checked first: a Codex nested in Claude Code is the active driver)
   - else `CLAUDE_CODE_SESSION_ID` present → sid = that id, label = `claude`
@@ -21,13 +21,13 @@ A message channel so coordinating agent sessions (typically one Claude Code + on
 The channel namespace is flat and unguarded, so two unrelated groups could both pick `review`. Two conventions prevent that:
 
 - **Add a random 5-lowercase-letter suffix** to the channel name — `review-xyzab`. This is guidance for whoever picks the name (a human or the opening model); parley does not mint it.
-- **`send --expect-new`** asserts (atomically, under the append lock) that the channel is still fresh — empty, or holding at most one opener message per *other* session and none from me — before sending. If the name already has a real conversation, it errors instead of joining. Openers should use it on their first message.
+- **`send --expect-new`** asserts (best-effort) that the channel is still fresh — empty, or holding at most one opener message per *other* session and none from me — before sending. If the name already has a real conversation, it errors instead of joining. Openers should use it on their first message.
 
 Also: **prefer single-shot messages** (say it in one `send`) so a channel stays in the clean "one opener per session" shape that `--expect-new` recognizes and so the transcript reads cleanly.
 
 ## Blocking within a turn, polling across turns
 
-`--wait` blocks the process until another session speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. The default timeout is **90s**, which sits under the ~120s agent-harness command limit: on timeout the call exits **2** and tells you to run again. It feels live inside a turn and degrades to a re-poll across turns. Bump `--timeout` only if you know the harness allows a longer command. `--wait` never holds the write lock, so two sessions can both sit in `send --wait` without deadlocking.
+`--wait` blocks the process until another session speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. The default timeout is **90s**, which sits under the ~120s agent-harness command limit: on timeout the call exits **2** and tells you to run again. It feels live inside a turn and degrades to a re-poll across turns. Bump `--timeout` only if you know the harness allows a longer command.
 
 ## Commands
 
@@ -39,7 +39,7 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 `channel` is required. Shared: `--timeout <sec>` (default 90, on `--wait`), `--json` (emit JSONL — includes each sender's `sid`), `--as <id>`.
 
-**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `3` channel busy, lock not acquired (not delivered — **retry**) · `1` error · `130` interrupted.
+**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `1` error · `130` interrupted.
 
 ### Admin (operator only)
 
@@ -102,4 +102,4 @@ Rules:
 - No settings/secrets, so no `Configuration/` layer — DI only carries the log-level switch and `ChannelStore`.
 - The wait loop polls every 200ms (robust on WSL; no inotify dependency).
 - Channel names and session ids are used verbatim in filenames, validated to `[A-Za-z0-9_-]` — no dots. Dots are excluded on purpose: `.` is the field separator in `<channel>.<sid>.cursor`, so allowing it in either would make that encoding ambiguous and admit `.`/`..` traversal. (Real session ids — UUIDs, `thr_…` — contain no dots.)
-- **Locking.** The write lock (`<channel>.lock`, an exclusive flock) is held only for the brief append (read seq → write one line). A contended writer retries every 50ms up to **30s** (override with `PARLEY_LOCK_TIMEOUT_SECONDS`), then exits **3** (`Busy: …`, retryable) — a typed `ChannelLockException` with a clean message, not a stack trace. While held, a sidecar `<channel>.owner` file records the holder's pid/op/time (cleared on release), so a timeout names who held it. If a timeout finds the recorded holder's pid dead, it breaks the stale lock and retries once (self-heal). Note: the `.lock` file always exists (it's the flock target); presence ≠ held — check for `.owner` to see if a lock is actually held right now.
+- **Lock-free appends (no lock files).** Each message is one atomic POSIX `O_APPEND` write (small libc P/Invoke: `open(O_WRONLY|O_CREAT|O_APPEND)` → single `write()` → `close`). The kernel serializes each write at true EOF under the inode lock, so concurrent writers never lose or interleave data without any lock. This deliberately avoids `flock`, which fails inside sandboxes that restrict it (e.g. Codex's) — the earlier flock design caused the "stuck lock / Busy" failures. `seq` is the message's 1-based line position, derived on read (never stored). `ReadAll` tolerates a torn last line (skips unparseable lines). Windows falls back to `FileMode.Append` (atomic there). `pop` rewrites via temp-file + atomic rename; `--expect-new` and `pop`'s stale-check are best-effort (a tiny race is acceptable for these).

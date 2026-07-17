@@ -11,3 +11,10 @@ namespace ParleyCli.Models;
 /// <param name="Text">Message body.</param>
 /// <param name="Closed">True if the sender marked this message final (no reply expected — end of exchange); null/absent otherwise.</param>
 public record Message(int Seq, string Ts, string From, string Sid, string Text, bool? Closed = null);
+
+/// <summary>
+/// On-disk shape of a transcript line. Deliberately omits <c>Seq</c> — position (and thus seq) is
+/// implicit in line order and derived on read, so lock-free concurrent appends can't collide on a
+/// precomputed seq.
+/// </summary>
+public record MessageWire(string Ts, string From, string Sid, string Text, bool? Closed = null);
