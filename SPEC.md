@@ -39,7 +39,7 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 `channel` is required. Shared: `--timeout <sec>` (default 90, on `--wait`), `--json` (emit JSONL — includes each sender's `sid`), `--as <id>`.
 
-**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `1` error · `130` interrupted.
+**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `3` channel busy, lock not acquired (not delivered — **retry**) · `1` error · `130` interrupted.
 
 ### Admin (operator only)
 
@@ -102,4 +102,4 @@ Rules:
 - No settings/secrets, so no `Configuration/` layer — DI only carries the log-level switch and `ChannelStore`.
 - The wait loop polls every 200ms (robust on WSL; no inotify dependency).
 - Channel names and session ids are used verbatim in filenames, validated to `[A-Za-z0-9_-]` — no dots. Dots are excluded on purpose: `.` is the field separator in `<channel>.<sid>.cursor`, so allowing it in either would make that encoding ambiguous and admit `.`/`..` traversal. (Real session ids — UUIDs, `thr_…` — contain no dots.)
-- The write lock is held only for the brief append (read seq → write one line); a contended `send` retries every 50ms up to 10s, then errors. A process crash releases the lock (OS closes the handle).
+- **Locking.** The write lock (`<channel>.lock`, an exclusive flock) is held only for the brief append (read seq → write one line). A contended writer retries every 50ms up to **30s** (override with `PARLEY_LOCK_TIMEOUT_SECONDS`), then exits **3** (`Busy: …`, retryable) — a typed `ChannelLockException` with a clean message, not a stack trace. While held, a sidecar `<channel>.owner` file records the holder's pid/op/time (cleared on release), so a timeout names who held it. If a timeout finds the recorded holder's pid dead, it breaks the stale lock and retries once (self-heal). Note: the `.lock` file always exists (it's the flock target); presence ≠ held — check for `.owner` to see if a lock is actually held right now.

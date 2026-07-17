@@ -43,6 +43,17 @@ public class ChannelStore
 
     private string TranscriptPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.jsonl");
     private string LockPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.lock");
+    // Sidecar holder metadata. Separate from the flock target (which is opened FileShare.None
+    // and so can't be read by a waiter); exists only while the lock is held.
+    private string OwnerPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.owner");
+
+    private static readonly TimeSpan LockTimeout = ReadLockTimeout();
+
+    private static TimeSpan ReadLockTimeout()
+    {
+        var env = Environment.GetEnvironmentVariable("PARLEY_LOCK_TIMEOUT_SECONDS");
+        return int.TryParse(env, out var s) && s > 0 ? TimeSpan.FromSeconds(s) : TimeSpan.FromSeconds(30);
+    }
     // Cursor is tagged with the sender's unique session id, so any number of sessions
     // can share a channel and each track its own read position independently.
     private string CursorPath(string channel, string sid) => Path.Combine(ChannelsDir, $"{channel}.{sid}.cursor");
@@ -66,7 +77,7 @@ public class ChannelStore
     public Message Append(string channel, string from, string sid, string text, bool expectNew = false, bool closed = false)
     {
         Directory.CreateDirectory(ChannelsDir);
-        using var _ = AcquireLock(channel);
+        using var _ = AcquireLock(channel, "append");
 
         var all = ReadAll(channel);
         if (expectNew)
@@ -144,7 +155,7 @@ public class ChannelStore
     /// </summary>
     public Message Pop(string channel, int expectedLastSeq)
     {
-        using var _ = AcquireLock(channel);
+        using var _ = AcquireLock(channel, "pop");
 
         var all = ReadAll(channel);
         if (all.Count == 0)
@@ -196,13 +207,14 @@ public class ChannelStore
     public void DeleteChannel(string channel)
     {
         if (!Directory.Exists(ChannelsDir)) return;
-        using (AcquireLock(channel))
+        using (AcquireLock(channel, "prune"))
         {
             SafeDelete(TranscriptPath(channel));
             foreach (var f in Directory.GetFiles(ChannelsDir, $"{channel}.*.cursor"))
                 SafeDelete(f);
         }
         SafeDelete(LockPath(channel)); // after releasing the handle
+        SafeDelete(OwnerPath(channel));
     }
 
     private static void SafeDelete(string path)
@@ -221,22 +233,92 @@ public class ChannelStore
         }
     }
 
-    private FileStream AcquireLock(string channel)
+    /// <summary>
+    /// Acquires the channel's exclusive write lock, stamping a sidecar owner file (pid/op/time)
+    /// so a waiter that times out can name the holder. Retries every 50ms up to
+    /// <see cref="LockTimeout"/>. If it times out and the recorded holder is no longer alive,
+    /// it breaks the stale lock once and retries; otherwise it throws <see cref="ChannelLockException"/>.
+    /// The returned handle releases the lock and clears the owner file on dispose.
+    /// </summary>
+    private IDisposable AcquireLock(string channel, string op)
     {
         var lockPath = LockPath(channel);
         var sw = Stopwatch.StartNew();
+        var brokeStale = false;
+
         while (true)
         {
             try
             {
-                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                var fs = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                WriteOwner(channel, op);
+                return new LockHandle(fs, OwnerPath(channel));
             }
             catch (IOException)
             {
-                if (sw.Elapsed > TimeSpan.FromSeconds(10))
-                    throw new TimeoutException($"Could not acquire lock for channel '{channel}' within 10s.");
+                if (sw.Elapsed >= LockTimeout)
+                {
+                    var holder = ReadOwner(channel);
+
+                    // Self-heal: if the recorded holder is dead, the flock should already be
+                    // released — break any stale lock file and retry once before giving up.
+                    if (!brokeStale && holder is not null && !IsProcessAlive(holder.Pid))
+                    {
+                        brokeStale = true;
+                        try { if (File.Exists(lockPath)) File.Delete(lockPath); } catch { /* best effort */ }
+                        sw.Restart();
+                        continue;
+                    }
+
+                    var who = holder is null
+                        ? "another process"
+                        : $"pid {holder.Pid} running '{holder.Op}' since {holder.Since}";
+                    throw new ChannelLockException(channel, holder,
+                        $"Channel '{channel}' is busy — held by {who}. Not completed; retry in a moment.");
+                }
                 Thread.Sleep(50);
             }
+        }
+    }
+
+    private void WriteOwner(string channel, string op)
+    {
+        var owner = new LockOwner(Environment.ProcessId, op, DateTimeOffset.UtcNow.ToString("o"));
+        File.WriteAllText(OwnerPath(channel), JsonSerializer.Serialize(owner, JsonOpts));
+    }
+
+    private LockOwner? ReadOwner(string channel)
+    {
+        var path = OwnerPath(channel);
+        if (!File.Exists(path)) return null;
+        try { return JsonSerializer.Deserialize<LockOwner>(File.ReadAllText(path), JsonOpts); }
+        catch { return null; }
+    }
+
+    private static bool IsProcessAlive(int pid)
+    {
+        if (pid <= 0) return false;
+        if (OperatingSystem.IsLinux()) return Directory.Exists($"/proc/{pid}");
+        try { using var _ = System.Diagnostics.Process.GetProcessById(pid); return true; }
+        catch { return false; }
+    }
+
+    /// <summary>Holds the flock (via the open FileStream) and clears the owner file on release.</summary>
+    private sealed class LockHandle : IDisposable
+    {
+        private readonly FileStream _fs;
+        private readonly string _ownerPath;
+
+        public LockHandle(FileStream fs, string ownerPath)
+        {
+            _fs = fs;
+            _ownerPath = ownerPath;
+        }
+
+        public void Dispose()
+        {
+            _fs.Dispose(); // releases the flock
+            try { if (File.Exists(_ownerPath)) File.Delete(_ownerPath); } catch { /* best effort */ }
         }
     }
 }
