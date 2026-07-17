@@ -43,7 +43,10 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 ### Admin (operator only)
 
-`parley admin` groups human-operator maintenance — **not for models**. Currently: `parley admin pop <channel>` removes the last message (highest seq) and rolls back any cursor that had read it (so it isn't skipped). Asks for confirmation unless `--yes`; refuses non-interactively without `--yes`; aborts if the channel changed since it read the last message.
+`parley admin` groups human-operator maintenance — **not for models**. Both confirm before acting (unless `--yes`) and refuse non-interactively without `--yes`.
+
+- `parley admin pop <channel>` — remove the last message (highest seq) and roll back any cursor that had read it (so it isn't skipped). Aborts if the channel changed since it read the last message.
+- `parley admin prune [--days N] [--dry-run]` — delete channels idle (no new message) longer than `--days` (default 30); lists them first. `--dry-run` previews without deleting. Idle age is the newest message's timestamp (or the file's mtime for an emptied channel).
 
 stdout carries message data only; all status/errors go to stderr (pipe-safe).
 

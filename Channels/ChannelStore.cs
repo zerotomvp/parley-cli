@@ -164,6 +164,52 @@ public class ChannelStore
         return popped;
     }
 
+    /// <summary>Channel names that have a transcript file (including ones emptied by <c>pop</c>).</summary>
+    public List<string> ListChannels()
+    {
+        if (!Directory.Exists(ChannelsDir)) return new();
+        return Directory.GetFiles(ChannelsDir, "*.jsonl")
+            .Select(Path.GetFileNameWithoutExtension)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!)
+            .ToList();
+    }
+
+    /// <summary>
+    /// A channel's message count and last activity: the newest message's timestamp, or —
+    /// for an emptied channel — the transcript file's last-write time.
+    /// </summary>
+    public (int count, DateTimeOffset lastActivity) ChannelActivity(string channel)
+    {
+        var all = ReadAll(channel);
+        if (all.Count > 0 && DateTimeOffset.TryParse(all[^1].Ts, out var ts))
+            return (all.Count, ts);
+
+        var path = TranscriptPath(channel);
+        var mtime = File.Exists(path)
+            ? new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero)
+            : DateTimeOffset.MinValue;
+        return (all.Count, mtime);
+    }
+
+    /// <summary>Deletes a channel's transcript, cursors, and lock file. Used by <c>admin prune</c>.</summary>
+    public void DeleteChannel(string channel)
+    {
+        if (!Directory.Exists(ChannelsDir)) return;
+        using (AcquireLock(channel))
+        {
+            SafeDelete(TranscriptPath(channel));
+            foreach (var f in Directory.GetFiles(ChannelsDir, $"{channel}.*.cursor"))
+                SafeDelete(f);
+        }
+        SafeDelete(LockPath(channel)); // after releasing the handle
+    }
+
+    private static void SafeDelete(string path)
+    {
+        if (File.Exists(path)) File.Delete(path);
+    }
+
     /// <summary>Clamps every cursor for a channel down to <paramref name="max"/> (after a message was removed).</summary>
     private void ClampCursors(string channel, int max)
     {
