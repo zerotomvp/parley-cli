@@ -22,7 +22,10 @@ public static class CommandHelpers
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        WriteIndented = false,
+        // Match the stored form: omit nulls only (see ChannelStore), so "closed" appears
+        // only on closing messages without dropping meaningful defaults elsewhere.
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
     /// <summary>Applies the --log-level global option to the active logging switch.</summary>
@@ -83,10 +86,17 @@ public static class CommandHelpers
         {
             var m = messages[i];
             if (i > 0) sb.AppendLine();
-            sb.AppendLine($"{m.From} · {FormatTime(m.Ts)} · #{m.Seq}");
+            sb.AppendLine($"{m.From} · {FormatTime(m.Ts)} · #{m.Seq}{(m.Closed == true ? " · [closed]" : "")}");
             sb.AppendLine(m.Text);
         }
         Console.Write(sb.ToString());
+    }
+
+    /// <summary>If any received message marks the exchange closed, tell the reader to stop waiting.</summary>
+    public static void NoteIfClosed(IReadOnlyList<Message> messages)
+    {
+        if (messages.Any(m => m.Closed == true))
+            Stderr.MarkupLine("[yellow]The other side marked the exchange closed[/] — no reply expected; do not wait for more.");
     }
 
     private static string FormatTime(string iso) =>

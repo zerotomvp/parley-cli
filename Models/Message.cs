@@ -9,4 +9,5 @@ namespace ParleyCli.Models;
 /// <param name="From">Human-readable display label of the sender (e.g. "claude").</param>
 /// <param name="Sid">Sender's unique session id — the identity used to key cursors and filter "not me".</param>
 /// <param name="Text">Message body.</param>
-public record Message(int Seq, string Ts, string From, string Sid, string Text);
+/// <param name="Closed">True if the sender marked this message final (no reply expected — end of exchange); null/absent otherwise.</param>
+public record Message(int Seq, string Ts, string From, string Sid, string Text, bool? Closed = null);

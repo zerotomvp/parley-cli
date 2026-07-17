@@ -22,7 +22,10 @@ public class ChannelStore
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        WriteIndented = false,
+        // Only omit nulls (not every type-default), so a closing message writes "closed":true
+        // and normal ones omit it — without silently dropping meaningful defaults on other fields.
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
     private readonly string _root;
@@ -60,7 +63,7 @@ public class ChannelStore
     /// has not spoken at all — so an opener can detect that the channel name collided with
     /// an existing conversation. Throws <see cref="ArgumentException"/> if not fresh.
     /// </summary>
-    public Message Append(string channel, string from, string sid, string text, bool expectNew = false)
+    public Message Append(string channel, string from, string sid, string text, bool expectNew = false, bool closed = false)
     {
         Directory.CreateDirectory(ChannelsDir);
         using var _ = AcquireLock(channel);
@@ -77,7 +80,7 @@ public class ChannelStore
         }
 
         var seq = all.Count + 1;
-        var msg = new Message(seq, DateTimeOffset.UtcNow.ToString("o"), from, sid, text);
+        var msg = new Message(seq, DateTimeOffset.UtcNow.ToString("o"), from, sid, text, closed ? true : null);
         File.AppendAllText(TranscriptPath(channel), JsonSerializer.Serialize(msg, JsonOpts) + "\n");
         return msg;
     }

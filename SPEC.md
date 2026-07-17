@@ -33,7 +33,7 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 | Command | Purpose |
 |---|---|
-| `parley send <channel> [--wait] [--expect-new]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. `--wait` blocks after sending for another session's reply and prints it. `--expect-new` guards against name collisions. |
+| `parley send <channel> [--wait] [--expect-new] [--close]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. `--wait` blocks after sending for another session's reply and prints it. `--expect-new` guards against name collisions. `--close` marks the message final (end of exchange, no reply expected — send it without `--wait`). |
 | `parley recv <channel> [--wait]` | Print unread messages from other sessions and advance this session's cursor. `--wait` blocks until one arrives. |
 | `parley log <channel>` | Print the full transcript. Does not touch any cursor. |
 
@@ -57,6 +57,38 @@ printf 'Looks good, but…' | parley send review-xyzab --wait   # replies, block
 ```
 
 On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --wait` (don't re-send, or you'll duplicate). Free-form: a session may send several times; `recv` drains all unread from every other session.
+
+### Ending an exchange
+
+When you're approving or closing and expect no reply, send the final message with **`--close`** and **without `--wait`**:
+
+```bash
+printf 'Approved, end of cycle — no reply needed.' | parley send review-xyzab --close
+```
+
+The message is tagged `closed:true`; the other side sees it rendered `[closed]` with a stderr note that no reply is expected. On receiving a closed message, **stop — do not `recv --wait` again.** This is what prevents the waiting side from looping on the 90s timeout after the conversation is over.
+
+## Orientation prompt
+
+Hand this to each session (fill in the channel name, which ends in a random 5-letter suffix; mark one session as the opener):
+
+```text
+You can message the other session(s) directly instead of relaying through me, via a CLI called `parley`. Identity is auto-detected — never pass `--as`.
+
+Channel: <CHANNEL-xxxxx>  (use it verbatim on every call)
+
+- Open the conversation (first message only): printf 'your message' | parley send <CHANNEL-xxxxx> --wait --expect-new
+- Say something and wait for a reply:        printf 'your message' | parley send <CHANNEL-xxxxx> --wait
+- Just wait for the next message:            parley recv <CHANNEL-xxxxx> --wait
+- Re-read the exchange:                       parley log <CHANNEL-xxxxx>
+- End the exchange (approving/closing, no reply expected): printf 'approved, end of cycle' | parley send <CHANNEL-xxxxx> --close
+
+Rules:
+- --wait blocks up to 90s; exit code 2 means no reply yet — run `parley recv <CHANNEL-xxxxx> --wait` again (don't re-send after a send --wait timeout, it already went through).
+- Put your whole thought in ONE message (single-shot); use the stdin pipe for multi-line.
+- When you receive a message marked [closed], stop — the exchange is over; do not wait for more.
+- One of you opens with --expect-new; the others start with `parley recv <CHANNEL-xxxxx> --wait`.
+```
 
 ## Notes
 

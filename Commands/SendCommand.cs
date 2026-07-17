@@ -36,11 +36,15 @@ public static class SendCommand
         {
             Description = "Assert the channel is fresh (empty, or one opener message per other session) before sending; fails if the name already has a conversation"
         };
+        var closeOpt = new Option<bool>("--close")
+        {
+            Description = "Mark this message final — you're ending the exchange and expect no reply. Send it without --wait."
+        };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit the reply as JSONL (with --wait)" };
 
         var command = new Command("send", "Post a message to a channel (body from stdin, or -m).")
         {
-            channelArg, messageOpt, waitOpt, timeoutOpt, expectNewOpt, jsonOpt
+            channelArg, messageOpt, waitOpt, timeoutOpt, expectNewOpt, closeOpt, jsonOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
@@ -53,6 +57,7 @@ public static class SendCommand
             var wait = pr.GetValue(waitOpt);
             var timeout = pr.GetValue(timeoutOpt);
             var expectNew = pr.GetValue(expectNewOpt);
+            var close = pr.GetValue(closeOpt);
             var json = pr.GetValue(jsonOpt);
 
             var inline = pr.GetValue(messageOpt);
@@ -64,8 +69,11 @@ public static class SendCommand
                 return 1;
             }
 
-            var sent = store.Append(channel, me.Label, me.Sid, text, expectNew);
-            Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Label)}[/]");
+            var sent = store.Append(channel, me.Label, me.Sid, text, expectNew, close);
+            Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Label)}[/]{(close ? " [yellow](closed)[/]" : "")}");
+
+            if (close && wait)
+                Stderr.MarkupLine("[grey]Note: --close means no reply is expected; --wait will just time out.[/]");
 
             if (!wait) return 0;
 
@@ -82,6 +90,7 @@ public static class SendCommand
             var unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid).ToList();
             PrintMessages(unread, json);
             store.SetCursor(channel, me.Sid, snapshot[^1].Seq);
+            NoteIfClosed(unread);
             return 0;
         }));
 

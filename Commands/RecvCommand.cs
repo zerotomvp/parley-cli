@@ -71,6 +71,7 @@ public static class RecvCommand
             PrintMessages(unread, json);
             store.SetCursor(channel, me.Sid, snapshot[^1].Seq);
             Stderr.MarkupLine($"[green]✓[/] {unread.Count} message(s) from other session(s)");
+            NoteIfClosed(unread);
             return 0;
         }));
 
