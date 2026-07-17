@@ -14,7 +14,11 @@ public static class RecvCommand
 {
     public static Command Create()
     {
-        var channelArg = new Argument<string>("channel") { Description = "Channel name" };
+        var channelArg = new Argument<string?>("channel")
+        {
+            Description = "Channel name (default: default)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
         var waitOpt = new Option<bool>("--wait", "-w")
         {
             Description = "Block until an unread peer message arrives"
@@ -36,7 +40,7 @@ public static class RecvCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
 
-            var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
+            var channel = ResolveChannel(pr.GetValue(channelArg));
             var me = ResolveId(pr);
             var wait = pr.GetValue(waitOpt);
             var timeout = pr.GetValue(timeoutOpt);

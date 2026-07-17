@@ -15,11 +15,14 @@ public static class SendCommand
 {
     public static Command Create()
     {
-        var channelArg = new Argument<string>("channel") { Description = "Channel name" };
-        var textArg = new Argument<string?>("text")
+        var channelArg = new Argument<string?>("channel")
         {
-            Description = "Message body (omit to read from stdin)",
+            Description = "Channel name (default: default)",
             Arity = ArgumentArity.ZeroOrOne
+        };
+        var messageOpt = new Option<string?>("--message", "-m")
+        {
+            Description = "Message body (omit to read from stdin)"
         };
         var waitOpt = new Option<bool>("--wait", "-w")
         {
@@ -32,9 +35,9 @@ public static class SendCommand
         };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit the reply as JSONL (with --wait)" };
 
-        var command = new Command("send", "Post a message to a channel (body from stdin or inline argument).")
+        var command = new Command("send", "Post a message to a channel (body from stdin, or -m).")
         {
-            channelArg, textArg, waitOpt, timeoutOpt, jsonOpt
+            channelArg, messageOpt, waitOpt, timeoutOpt, jsonOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
@@ -42,13 +45,13 @@ public static class SendCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
 
-            var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
+            var channel = ResolveChannel(pr.GetValue(channelArg));
             var me = ResolveId(pr);
             var wait = pr.GetValue(waitOpt);
             var timeout = pr.GetValue(timeoutOpt);
             var json = pr.GetValue(jsonOpt);
 
-            var inline = pr.GetValue(textArg);
+            var inline = pr.GetValue(messageOpt);
             var text = inline ?? (Console.IsInputRedirected ? await Console.In.ReadToEndAsync(ct) : "");
             text = text.TrimEnd('\r', '\n');
             if (string.IsNullOrWhiteSpace(text))

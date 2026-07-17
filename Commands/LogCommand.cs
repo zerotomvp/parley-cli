@@ -11,7 +11,11 @@ public static class LogCommand
 {
     public static Command Create()
     {
-        var channelArg = new Argument<string>("channel") { Description = "Channel name" };
+        var channelArg = new Argument<string?>("channel")
+        {
+            Description = "Channel name (default: default)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit messages as JSONL" };
 
         var command = new Command("log", "Print the full transcript of a channel (does not advance any cursor).")
@@ -24,7 +28,7 @@ public static class LogCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
 
-            var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
+            var channel = ResolveChannel(pr.GetValue(channelArg));
             var json = pr.GetValue(jsonOpt);
 
             var all = store.ReadAll(channel);

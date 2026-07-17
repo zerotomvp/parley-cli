@@ -25,6 +25,13 @@ public static class CommandHelpers
         WriteIndented = false
     };
 
+    /// <summary>Channel used when none is given on the command line.</summary>
+    public const string DefaultChannel = "default";
+
+    /// <summary>Resolves and validates the channel from an optional positional (falls back to the default).</summary>
+    public static string ResolveChannel(string? value) =>
+        ChannelStore.Validate("channel", string.IsNullOrWhiteSpace(value) ? DefaultChannel : value);
+
     /// <summary>Applies the --log-level global option to the active logging switch.</summary>
     public static void ApplyLogLevel(ParseResult pr)
     {
@@ -32,15 +39,39 @@ public static class CommandHelpers
         levelSwitch.MinimumLevel = LoggingConfiguration.ParseLevel(pr.GetValue(GlobalOptions.LogLevel) ?? "info");
     }
 
-    /// <summary>Resolves the participant id from --as or the PARLEY_ID env var; throws if neither is set.</summary>
+    /// <summary>
+    /// Resolves this session's participant id. Precedence: <c>--as</c> → <c>PARLEY_ID</c> env →
+    /// auto-detect from the runtime's own session marker (which persists across the agent's
+    /// separate shell invocations). Throws if none apply.
+    /// </summary>
     public static string ResolveId(ParseResult pr)
     {
-        var id = pr.GetValue(GlobalOptions.As)
-                 ?? Environment.GetEnvironmentVariable("PARLEY_ID");
-        if (string.IsNullOrWhiteSpace(id))
-            throw new ArgumentException(
-                "No participant id. Pass --as <id> or set the PARLEY_ID env var (e.g. PARLEY_ID=claude).");
-        return ChannelStore.Validate("participant id", id);
+        var explicitId = pr.GetValue(GlobalOptions.As)
+                         ?? Environment.GetEnvironmentVariable("PARLEY_ID");
+        if (!string.IsNullOrWhiteSpace(explicitId))
+            return ChannelStore.Validate("participant id", explicitId);
+
+        var detected = DetectRuntimeId();
+        if (detected != null)
+            return detected;
+
+        throw new ArgumentException(
+            "Could not determine participant id. Running under Claude Code or Codex sets it " +
+            "automatically; otherwise pass --as <id> or set the PARLEY_ID env var.");
+    }
+
+    /// <summary>
+    /// Infers the participant from the agent runtime's injected session env var. Codex is
+    /// checked first: a Codex session nested inside Claude Code is the active driver, so its
+    /// marker should win when both are present.
+    /// </summary>
+    private static string? DetectRuntimeId()
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODEX_THREAD_ID")))
+            return "codex";
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID")))
+            return "claude";
+        return null;
     }
 
     /// <summary>Writes messages to stdout — human-readable by default, one compact JSON object per line with --json.</summary>
