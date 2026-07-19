@@ -24,8 +24,8 @@ public static class RecvCommand
         };
         var timeoutOpt = new Option<int>("--timeout", "-t")
         {
-            Description = "Seconds to wait (with --wait)",
-            DefaultValueFactory = _ => 90
+            Description = "Seconds to bound the wait (with --wait); 0 or omitted = wait indefinitely until a message arrives",
+            DefaultValueFactory = _ => 0
         };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit messages as JSONL" };
 
@@ -51,8 +51,11 @@ public static class RecvCommand
 
             if (unread.Count == 0 && wait)
             {
-                Stderr.MarkupLine($"[cyan]Waiting up to {timeout}s for a message…[/]");
+                Stderr.MarkupLine(timeout > 0
+                    ? $"[cyan]Waiting up to {timeout}s for a message…[/]"
+                    : "[cyan]Waiting for a message (no timeout — Ctrl+C to stop)…[/]");
                 var (satisfied, waited) = await store.WaitForPeer(channel, me.Sid, cursor, timeout, ct);
+                // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
                 if (!satisfied)
                 {
                     Stderr.MarkupLine($"[yellow]No new message within {timeout}s.[/] Run again to keep waiting.");

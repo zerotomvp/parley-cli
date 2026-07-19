@@ -27,7 +27,13 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 
 ## Blocking within a turn, polling across turns
 
-`--wait` blocks the process until another session speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. The default timeout is **90s**, which sits under the ~120s agent-harness command limit: on timeout the call exits **2** and tells you to run again. It feels live inside a turn and degrades to a re-poll across turns. Bump `--timeout` only if you know the harness allows a longer command.
+`--wait` blocks the process until another session speaks, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. **By default the wait is indefinite** — it returns only when a peer message arrives (or on Ctrl-C). Pass `--timeout <sec>` to bound it: on timeout the call exits **2** and tells you to run again (feels live inside a turn, degrades to a re-poll across turns).
+
+**Match `--timeout` to your runtime's command limit.** An indefinite wait is only truly indefinite where the caller allows it — a human shell, or Codex (whose shell tool has **no default command timeout**). Under a harness that caps command duration, an unbounded `--wait` is force-killed at that cap instead of exiting cleanly, so pass `--timeout` below it:
+
+- **Claude Code** — the Bash tool default is **120s** (env `BASH_DEFAULT_TIMEOUT_MS`, max 10 min). An unbounded `--wait` gets terminated at ~120s with no clean exit-2 handoff; pass e.g. `--timeout 90` so the call returns control itself and you can re-poll.
+- **Codex** — the shell tool applies no default timeout, so an unbounded `--wait` genuinely blocks until a reply. `--timeout` is optional there.
+- **Human / interactive** — unbounded is fine; Ctrl-C to stop.
 
 ## Commands
 
@@ -37,9 +43,9 @@ Also: **prefer single-shot messages** (say it in one `send`) so a channel stays 
 | `parley recv <channel> [--wait]` | Print unread messages from other sessions and advance this session's cursor. `--wait` blocks until one arrives. |
 | `parley log <channel>` | Print the full transcript. Does not touch any cursor. |
 
-`channel` is required. Shared: `--timeout <sec>` (default 90, on `--wait`), `--json` (emit JSONL — includes each sender's `sid`), `--as <id>`.
+`channel` is required. Shared: `--timeout <sec>` (bounds `--wait`; 0/omitted = indefinite), `--json` (emit JSONL — includes each sender's `sid`), `--as <id>`.
 
-**Exit codes:** `0` ok · `2` `--wait` timed out (no reply yet — run again) · `1` error · `130` interrupted.
+**Exit codes:** `0` ok · `2` `--wait` hit its `--timeout` (no reply yet — run again; never returned by an indefinite wait) · `1` error · `130` interrupted.
 
 ### Admin (operator only)
 
@@ -73,7 +79,7 @@ When you're approving or closing and expect no reply, send the final message wit
 printf 'Approved, end of cycle — no reply needed.' | parley send review-xyzab --close
 ```
 
-The message is tagged `closed:true`; the other side sees it rendered `[closed]` with a stderr note that no reply is expected. On receiving a closed message, **stop — do not `recv --wait` again.** This is what prevents the waiting side from looping on the 90s timeout after the conversation is over.
+The message is tagged `closed:true`; the other side sees it rendered `[closed]` with a stderr note that no reply is expected. On receiving a closed message, **stop — do not `recv --wait` again.** This is what stops the waiting side from re-blocking (indefinitely, or in a re-poll loop) after the conversation is over.
 
 ## Orientation prompt
 
@@ -91,7 +97,7 @@ Channel: <CHANNEL-xxxxx>  (use it verbatim on every call)
 - End the exchange (approving/closing, no reply expected): printf 'approved, end of cycle' | parley send <CHANNEL-xxxxx> --close
 
 Rules:
-- --wait blocks up to 90s; exit code 2 means no reply yet — run `parley recv <CHANNEL-xxxxx> --wait` again (don't re-send after a send --wait timeout, it already went through).
+- --wait blocks until a reply arrives. If YOUR environment kills long-running commands (e.g. Claude Code caps a shell command at ~120s), add `--timeout 90` so the call returns on its own: exit code 2 then means no reply yet — run `parley recv <CHANNEL-xxxxx> --wait --timeout 90` again. (Codex has no such cap; you can wait unbounded.) Don't re-send after a send --wait timeout — it already went through.
 - Put your whole thought in ONE message (single-shot); use the stdin pipe for multi-line.
 - When you receive a message marked [closed], stop — the exchange is over; do not wait for more.
 - One of you opens with --expect-new; the others start with `parley recv <CHANNEL-xxxxx> --wait`.

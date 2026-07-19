@@ -123,7 +123,9 @@ public class ChannelStore
 
     /// <summary>
     /// Blocks until a message from another session (sid != <paramref name="mySid"/>) with
-    /// seq &gt; <paramref name="afterSeq"/> exists, or the timeout elapses. Returns the full
+    /// seq &gt; <paramref name="afterSeq"/> exists, or the timeout elapses. When
+    /// <paramref name="timeoutSeconds"/> is &lt;= 0 the wait is indefinite (only ends on a peer
+    /// message or cancellation, so <paramref name="satisfied"/> is always true). Returns the full
     /// transcript snapshot that satisfied the wait (or the last snapshot on timeout, with
     /// <paramref name="satisfied"/> = false). Polls every 200ms.
     /// </summary>
@@ -137,7 +139,7 @@ public class ChannelStore
             if (all.Any(m => m.Sid != mySid && m.Seq > afterSeq))
                 return (true, all);
 
-            if (sw.Elapsed.TotalSeconds >= timeoutSeconds)
+            if (timeoutSeconds > 0 && sw.Elapsed.TotalSeconds >= timeoutSeconds)
                 return (false, all);
 
             await Task.Delay(200, ct);

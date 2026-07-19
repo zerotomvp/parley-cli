@@ -29,8 +29,8 @@ public static class SendCommand
         };
         var timeoutOpt = new Option<int>("--timeout", "-t")
         {
-            Description = "Seconds to wait for a reply (with --wait)",
-            DefaultValueFactory = _ => 90
+            Description = "Seconds to bound the wait (with --wait); 0 or omitted = wait indefinitely until a reply arrives",
+            DefaultValueFactory = _ => 0
         };
         var expectNewOpt = new Option<bool>("--expect-new")
         {
@@ -73,13 +73,16 @@ public static class SendCommand
             Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Label)}[/]{(close ? " [yellow](closed)[/]" : "")}");
 
             if (close && wait)
-                Stderr.MarkupLine("[grey]Note: --close means no reply is expected; --wait will just time out.[/]");
+                Stderr.MarkupLine("[grey]Note: --close means no reply is expected; --wait would block with nothing to receive.[/]");
 
             if (!wait) return 0;
 
-            Stderr.MarkupLine($"[cyan]Waiting up to {timeout}s for a reply…[/]");
+            Stderr.MarkupLine(timeout > 0
+                ? $"[cyan]Waiting up to {timeout}s for a reply…[/]"
+                : "[cyan]Waiting for a reply (no timeout — Ctrl+C to stop)…[/]");
             var (satisfied, snapshot) = await store.WaitForPeer(channel, me.Sid, sent.Seq, timeout, ct);
 
+            // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
             if (!satisfied)
             {
                 Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --wait[/] to keep waiting.");
