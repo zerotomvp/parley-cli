@@ -11,7 +11,6 @@ public static class AdminCommand
     public static Command Create()
     {
         var command = new Command("admin", "Maintenance commands for a human operator (not for automated sessions).");
-        command.Subcommands.Add(PopCommand.Create());
         command.Subcommands.Add(PruneCommand.Create());
         return command;
     }

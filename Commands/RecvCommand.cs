@@ -45,16 +45,19 @@ public static class RecvCommand
             var timeout = pr.GetValue(timeoutOpt);
             var json = pr.GetValue(jsonOpt);
 
+            // Must have joined as this role from this session before receiving.
+            store.VerifyMembership(channel, me.Role, me.Sid);
+
             var cursor = store.GetCursor(channel, me.Sid);
             var snapshot = store.ReadAll(channel);
-            var unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid).ToList();
+            var unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid && m.IsFor(me.Role)).ToList();
 
             if (unread.Count == 0 && wait)
             {
                 Stderr.MarkupLine(timeout > 0
                     ? $"[cyan]Waiting up to {timeout}s for a message…[/]"
                     : "[cyan]Waiting for a message (no timeout — Ctrl+C to stop)…[/]");
-                var (satisfied, waited) = await store.WaitForPeer(channel, me.Sid, cursor, timeout, ct);
+                var (satisfied, waited) = await store.WaitForPeer(channel, me.Sid, me.Role, cursor, timeout, ct);
                 // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
                 if (!satisfied)
                 {
@@ -62,7 +65,7 @@ public static class RecvCommand
                     return 2; // timeout: nothing yet
                 }
                 snapshot = waited;
-                unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid).ToList();
+                unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid && m.IsFor(me.Role)).ToList();
             }
 
             if (unread.Count == 0)

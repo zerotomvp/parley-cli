@@ -36,39 +36,44 @@ public static class CommandHelpers
     }
 
     /// <summary>
-    /// This session's identity on a channel: a unique <see cref="Sid"/> (session id — used to
-    /// tag cursors and filter "not me", so any number of sessions can share a channel) and a
-    /// human-readable <see cref="Label"/> shown as the message sender.
+    /// This session's identity on a channel: its <see cref="Role"/> (the addressable name it
+    /// claimed via <c>join</c>, shown as the message sender and used for addressing) and its unique
+    /// <see cref="Sid"/> (session id — the role-ownership token and cursor key).
     /// </summary>
-    public readonly record struct Identity(string Sid, string Label);
+    public readonly record struct Identity(string Sid, string Role);
 
     /// <summary>
-    /// Resolves this session's identity. Precedence: an explicit <c>--as</c>/<c>PARLEY_ID</c>
-    /// (sets both sid and label, for manual/testing use) → the agent runtime's own session id,
-    /// which persists across the agent's separate shells (<c>CODEX_THREAD_ID</c> → codex, checked
-    /// first for the nested case; else <c>CLAUDE_CODE_SESSION_ID</c> → claude). Throws if none apply.
+    /// Resolves this session's <c>sid</c> (session id). Precedence: explicit <c>--sid</c> /
+    /// <c>PARLEY_ID</c> → the agent runtime's own id, which persists across the agent's separate
+    /// shells (<c>CODEX_THREAD_ID</c>, then <c>CLAUDE_CODE_SESSION_ID</c>). Returns null if none
+    /// apply (manual use with no override) — callers may fall back to the role.
+    /// </summary>
+    public static string? ResolveSid(ParseResult pr)
+    {
+        var sid = pr.GetValue(GlobalOptions.Sid)
+                  ?? Environment.GetEnvironmentVariable("PARLEY_ID")
+                  ?? Environment.GetEnvironmentVariable("CODEX_THREAD_ID")
+                  ?? Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
+        return string.IsNullOrWhiteSpace(sid) ? null : ChannelStore.Validate("session id", sid);
+    }
+
+    /// <summary>
+    /// Resolves this session's identity: <c>--as &lt;role&gt;</c> is required (no auto-detected
+    /// role — distinct sessions must pick distinct roles). The sid is auto-detected (see
+    /// <see cref="ResolveSid"/>), falling back to the role itself when nothing injects one.
     /// </summary>
     public static Identity ResolveIdentity(ParseResult pr)
     {
-        var explicitId = pr.GetValue(GlobalOptions.As)
-                         ?? Environment.GetEnvironmentVariable("PARLEY_ID");
-        if (!string.IsNullOrWhiteSpace(explicitId))
-        {
-            var v = ChannelStore.Validate("participant id", explicitId);
-            return new Identity(v, v);
-        }
+        var role = pr.GetValue(GlobalOptions.As);
+        if (string.IsNullOrWhiteSpace(role))
+            throw new ArgumentException(
+                "This session's role is required: pass --as <role> (the name you joined the channel as).");
+        role = ChannelStore.Validate("role", role);
 
-        var codex = Environment.GetEnvironmentVariable("CODEX_THREAD_ID");
-        if (!string.IsNullOrWhiteSpace(codex))
-            return new Identity(ChannelStore.Validate("session id", codex), "codex");
-
-        var claude = Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
-        if (!string.IsNullOrWhiteSpace(claude))
-            return new Identity(ChannelStore.Validate("session id", claude), "claude");
-
-        throw new ArgumentException(
-            "Could not determine session identity. Running under Claude Code or Codex sets it " +
-            "automatically; otherwise pass --as <id> or set the PARLEY_ID env var.");
+        // sid auto-detected; when no runtime/override supplies one, the role doubles as the sid
+        // (single manual session owning its own role — harmless since role↔sid is then 1:1).
+        var sid = ResolveSid(pr) ?? role;
+        return new Identity(sid, role);
     }
 
     /// <summary>Writes messages to stdout — human-readable by default, one compact JSON object per line with --json.</summary>
@@ -86,7 +91,12 @@ public static class CommandHelpers
         {
             var m = messages[i];
             if (i > 0) sb.AppendLine();
-            sb.AppendLine($"{m.From} · {FormatTime(m.Ts)} · #{m.Seq}{(m.Closed == true ? " · [closed]" : "")}");
+            var to = m.Broadcast == true ? "→ all"
+                   : m.To is { Count: > 0 } ? "→ " + string.Join(",", m.To)
+                   : "";
+            var meta = string.Join(" · ", new[] { m.From, FormatTime(m.Ts), $"#{m.Seq}", to, m.Closed == true ? "[closed]" : "" }
+                .Where(s => !string.IsNullOrEmpty(s)));
+            sb.AppendLine(meta);
             sb.AppendLine(m.Text);
         }
         Console.Write(sb.ToString());
@@ -99,7 +109,10 @@ public static class CommandHelpers
             Stderr.MarkupLine("[yellow]The other side marked the exchange closed[/] — no reply expected; do not wait for more.");
     }
 
-    private static string FormatTime(string iso) =>
+    /// <summary>Short, display-friendly form of a (possibly long UUID/thread) session id.</summary>
+    public static string ShortSid(string sid) => sid.Length <= 12 ? sid : sid[..12] + "…";
+
+    public static string FormatTime(string iso) =>
         DateTimeOffset.TryParse(iso, out var dto)
             ? dto.ToLocalTime().ToString("HH:mm:ss")
             : iso;

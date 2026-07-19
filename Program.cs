@@ -13,17 +13,21 @@ Log.Logger = LoggingConfiguration.CreateLogger(levelSwitch);
 Cli.ConfigureServices(s => s.AddParleyServices(levelSwitch));
 
 var rootCommand = new RootCommand(
-    "parley: a two-party message channel so a Claude Code and a Codex session can coordinate over a shared transcript")
+    "parley: a role-addressed message channel so any number of agent sessions can coordinate over a shared transcript")
 {
     GlobalOptions.LogLevel,
-    GlobalOptions.As
+    GlobalOptions.As,
+    GlobalOptions.Sid
 };
 
 rootCommand.Directives.Add(new SuggestDirective());
 
+rootCommand.Subcommands.Add(JoinCommand.Create());
 rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());
+rootCommand.Subcommands.Add(WhoCommand.Create());
 rootCommand.Subcommands.Add(LogCommand.Create());
+rootCommand.Subcommands.Add(DropCommand.Create());
 rootCommand.Subcommands.Add(AdminCommand.Create());
 
 try

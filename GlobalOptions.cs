@@ -12,12 +12,24 @@ public static class GlobalOptions
     };
 
     /// <summary>
-    /// Who I am on the channel. Resolved from --as, else the PARLEY_ID env var.
-    /// Used to distinguish my own messages from the peer's on read.
+    /// This session's role on the channel — the addressable identity claimed via <c>join</c> and
+    /// used to send/receive. Required (no auto-detected default): distinct sessions must pick
+    /// distinct roles, and a shared auto-label would collide once more than two sessions join.
     /// </summary>
     public static readonly Option<string?> As = new Option<string?>("--as")
     {
-        Description = "This session's participant id (defaults to the PARLEY_ID env var)",
+        Description = "This session's role on the channel (required for join/send/recv)",
+        Recursive = true
+    };
+
+    /// <summary>
+    /// Override for this session's unique session id (the role-ownership token + cursor key).
+    /// Normally auto-detected from the runtime (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID); this
+    /// override — or the PARLEY_ID env var — is for manual/test use where no runtime injects one.
+    /// </summary>
+    public static readonly Option<string?> Sid = new Option<string?>("--sid")
+    {
+        Description = "Override the auto-detected session id (defaults to the runtime's id, or the PARLEY_ID env var)",
         Recursive = true
     };
 }
