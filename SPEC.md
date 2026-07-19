@@ -41,15 +41,22 @@ The channel namespace is flat and unguarded, so two unrelated groups could both 
 - **Add a random 5-lowercase-letter suffix** to the channel name — `review-xyzab`. Guidance for whoever picks the name; parley does not mint it.
 - **`send --expect-new`** asserts (best-effort) the channel is still fresh before sending; if the name already has a conversation it errors instead of joining. Openers should use it on their first message.
 
-## Blocking within a turn, polling across turns
+## Listening for messages (always on; foreground vs background)
 
-`--wait` blocks the process until a message addressed to me arrives, so from an agent's view one tool call returns exactly when the reply lands — no busy-polling. **By default the wait is indefinite** — it returns only on a relevant message (or Ctrl-C). Pass `--timeout <sec>` to bound it: on timeout the call exits **2** and tells you to run again (feels live inside a turn, degrades to a re-poll across turns).
+A member should **always be listening** so it never misses mail addressed to it. `--wait` blocks until a message addressed to me arrives, so one tool call returns exactly when it lands — no busy-polling. **By default the wait is indefinite** (returns only on a relevant message or Ctrl-C); `--timeout <sec>` bounds it, exiting **2** on timeout so you run again. Which mode to use depends on whether you're mid-exchange:
 
-**Match `--timeout` to your runtime's command limit.** An indefinite wait is only truly indefinite where the caller allows it — a human shell, or Codex (whose shell tool has **no default command timeout**). Under a harness that caps command duration, an unbounded `--wait` is force-killed at that cap instead of exiting cleanly, so pass `--timeout` below it:
+**Expecting a reply now → foreground `--wait`.** You just sent and are blocking this turn for the answer; leave it unbounded and let it return when the reply lands.
 
-- **Claude Code** — the Bash tool default is **120s** (env `BASH_DEFAULT_TIMEOUT_MS`, max 10 min). An unbounded `--wait` gets terminated at ~120s with no clean exit-2 handoff; pass e.g. `--timeout 90` so the call returns control itself and you can re-poll.
-- **Codex** — the shell tool applies no default timeout, so an unbounded `--wait` genuinely blocks until a reply. `--timeout` is optional there.
+- **Claude Code** — a foreground command that exceeds its Bash `timeout` (default 120s; ceiling 10 min via `BASH_MAX_TIMEOUT_MS`=600000) is **auto-backgrounded, not killed** (unless `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` is set), so an unbounded `--wait` keeps running and still delivers. Raise the Bash `timeout` only if you want to stay attached inline longer before it backgrounds.
+- **Codex** — the shell tool has **no default command timeout**, so an unbounded foreground `--wait` genuinely blocks until the reply.
 - **Human / interactive** — unbounded is fine; Ctrl-C to stop.
+
+`parley --timeout` and the Bash `timeout` are **independent layers, not meant to match**. The Bash timeout governs how long the harness keeps the *command* in the foreground; `parley --timeout` makes *parley itself* give up after N seconds and return a clean exit **2** ("no reply yet — run again"). Pass `parley --timeout` only when you deliberately want parley to hand control back at a chosen point (to interleave other work and re-poll) — not to avoid a kill, since there is none.
+
+**Not actively expecting a reply (idle, or after a `--close`) → background listener.** Stay reachable for the *next* message without tying up a turn blocking on it:
+
+- **Claude Code** — run an unbounded `parley recv <channel> --as <role> --wait` as a **background task** (`run_in_background`). A background task isn't bound by the 10-min foreground ceiling, so it blocks indefinitely and wakes you when a message lands — this is how you remain reachable after you've stopped actively volleying.
+- **Codex** — no 10-min cap, so a plain unbounded foreground `--wait` already serves as the standing listener.
 
 ## Commands
 
@@ -97,7 +104,7 @@ When you're approving or closing and expect no reply, send the final message wit
 printf 'Approved, end of cycle — no reply needed.' | parley send review-xyzab --to author --close
 ```
 
-The message is tagged `closed:true`; the recipient sees it rendered `[closed]` with a stderr note that no reply is expected. On receiving a closed message, **stop — do not `recv --wait` again.** This is what stops the waiting side from re-blocking after the conversation is over.
+The message is tagged `closed:true`; the recipient sees it rendered `[closed]` with a stderr note that no reply is expected. On a closed message, **stop foreground-waiting on that exchange** — don't re-block for a reply that isn't coming. To stay reachable for a new topic, switch to a **background listener** (above) rather than going silent; only drop the listener when your whole task is done.
 
 ## Orientation prompt
 
@@ -114,16 +121,18 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 - Open the conversation (first message):     printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait --expect-new
 - Say something and wait for a reply:        printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait
 - Message everyone:                          printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --broadcast
-- Just wait for the next message:            parley recv <CHANNEL-xxxxx> --as <ROLE> --wait
+- Wait for a reply (blocks this turn):       parley recv <CHANNEL-xxxxx> --as <ROLE> --wait
+- Stay reachable when NOT expecting a reply: run that same recv --wait as a BACKGROUND task (Claude Code: run_in_background; Codex: it just blocks)
 - Retract your last message:                 parley drop <CHANNEL-xxxxx> --as <ROLE> --yes
 - Re-read the exchange:                       parley log <CHANNEL-xxxxx>
 - End the exchange (no reply expected):      printf 'approved, end of cycle' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --close
 
 Rules:
 - Every send needs a destination: --to <roles> or --broadcast (never both, never neither).
-- --wait blocks until a message addressed to you arrives. If YOUR environment kills long-running commands (e.g. Claude Code caps a shell command at ~120s), add `--timeout 90` so the call returns on its own: exit 2 then means no reply yet — run `parley recv <CHANNEL-xxxxx> --as <ROLE> --wait --timeout 90` again. (Codex has no such cap; you can wait unbounded.) Don't re-send after a send --wait timeout — it already went through.
+- Always be listening. Expecting a reply now → foreground `parley recv ... --as <ROLE> --wait` (blocks this turn; returns when the reply lands). NOT expecting one (idle, or after a [closed]) → run the same command as a BACKGROUND task so you stay reachable without blocking: Claude Code use run_in_background (a long foreground wait auto-backgrounds anyway and is not killed); Codex a plain --wait just blocks (no timeout). You normally don't need --timeout — pass it only to make the wait return control after N seconds (exit 2 = run it again).
+- Don't re-send after a send --wait timeout — it already went through.
 - Put your whole thought in ONE message (single-shot); use the stdin pipe for multi-line.
-- When you receive a message marked [closed], stop — the exchange is over; do not wait for more.
+- On a [closed] message, stop replying to that exchange — but keep a background listener up for anything new; only stop when your task is done.
 - Everyone joins first; one opener uses --expect-new, the rest start with `parley recv ... --wait`.
 ```
 
