@@ -76,8 +76,14 @@ public static class CommandHelpers
         return new Identity(sid, role);
     }
 
-    /// <summary>Writes messages to stdout — human-readable by default, one compact JSON object per line with --json.</summary>
-    public static void PrintMessages(IReadOnlyList<Message> messages, bool json)
+    /// <summary>
+    /// Writes messages to stdout — human-readable by default, one compact JSON object per line with
+    /// --json. When <paramref name="previewChars"/> is set (log preview mode), each body is truncated
+    /// to a head with a clear cut-off marker pointing at <c>parley show &lt;channel&gt; &lt;seq&gt;</c>;
+    /// JSON output is never truncated (it carries the full body regardless).
+    /// </summary>
+    public static void PrintMessages(IReadOnlyList<Message> messages, bool json,
+        int? previewChars = null, string? channel = null)
     {
         if (json)
         {
@@ -97,9 +103,39 @@ public static class CommandHelpers
             var meta = string.Join(" · ", new[] { m.From, FormatTime(m.Ts), $"#{m.Seq}", to, m.Closed == true ? "[closed]" : "" }
                 .Where(s => !string.IsNullOrEmpty(s)));
             sb.AppendLine(meta);
-            sb.AppendLine(m.Text);
+
+            if (previewChars is int max)
+            {
+                var (head, truncated) = Preview(m.Text, max);
+                sb.AppendLine(head);
+                if (truncated)
+                    sb.AppendLine($"  … [truncated — full message: parley show {channel} {m.Seq}]");
+            }
+            else
+            {
+                sb.AppendLine(m.Text);
+            }
         }
         Console.Write(sb.ToString());
+    }
+
+    /// <summary>
+    /// Head of a message body for log preview: the first line, cut to <paramref name="max"/> chars.
+    /// Returns whether anything was dropped (extra lines or an over-length first line) so the caller
+    /// can mark the message as cut off early.
+    /// </summary>
+    public static (string head, bool truncated) Preview(string text, int max)
+    {
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var firstBreak = normalized.IndexOf('\n');
+        var truncated = firstBreak >= 0; // more lines follow the first
+        var head = firstBreak >= 0 ? normalized[..firstBreak] : normalized;
+        if (head.Length > max)
+        {
+            head = head[..max].TrimEnd();
+            truncated = true;
+        }
+        return (head, truncated);
     }
 
     /// <summary>If any received message marks the exchange closed, tell the reader to stop waiting.</summary>

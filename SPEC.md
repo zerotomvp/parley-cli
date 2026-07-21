@@ -66,7 +66,8 @@ A member should **always be listening** so it never misses mail addressed to it.
 | `parley send <channel> (--to <roles> \| --broadcast) [--wait] [--expect-new] [--close]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. Prints the assigned **seq to stdout**. `--wait` blocks after sending for a reply addressed to me and prints it. `--expect-new` guards name collisions. `--close` marks the message final (no reply expected — send without `--wait`). |
 | `parley recv <channel> --as <role> [--wait]` | Print unread messages addressed to me and advance my cursor. `--wait` blocks until one arrives. |
 | `parley who <channel>` | List the roles that have joined, with each one's message count and last activity. |
-| `parley log <channel>` | Print the full transcript. Does not touch any cursor. |
+| `parley log <channel> [--limit N]` | Print the transcript — the most recent **N** messages (default 10; `--limit 0` for all), each body previewed to its first line (cut at 200 chars) with a clear `… [truncated]` marker. Does not touch any cursor. |
+| `parley show <channel> <seq>` | Print one message in full (untruncated) by its `#seq` — the companion to `log`'s preview. Does not touch any cursor. |
 | `parley drop <channel> [--force]` | Retract the last message and roll back cursors that read it. **Owner-gated:** only your own last message (pass `--as <your-role>`); a human operator uses `--force` to drop anyone's. Confirms unless `--yes`. |
 
 `channel` is required. Shared: `--as <role>` (identity), `--sid <id>` (override auto-detect), `--timeout <sec>` (bounds `--wait`; 0/omitted = indefinite), `--json`.
@@ -124,7 +125,8 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 - Wait for a reply (blocks this turn):       parley recv <CHANNEL-xxxxx> --as <ROLE> --wait
 - Stay reachable when NOT expecting a reply: run that same recv --wait as a BACKGROUND task (Claude Code: run_in_background; Codex: it just blocks)
 - Retract your last message:                 parley drop <CHANNEL-xxxxx> --as <ROLE> --yes
-- Re-read the exchange:                       parley log <CHANNEL-xxxxx>
+- Re-read the exchange (recent, previewed):   parley log <CHANNEL-xxxxx>   (add --limit 0 for all)
+- Read one message in full:                   parley show <CHANNEL-xxxxx> <seq>
 - End the exchange (no reply expected):      printf 'approved, end of cycle' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --close
 
 Rules:

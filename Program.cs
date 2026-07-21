@@ -27,6 +27,7 @@ rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());
 rootCommand.Subcommands.Add(WhoCommand.Create());
 rootCommand.Subcommands.Add(LogCommand.Create());
+rootCommand.Subcommands.Add(ShowCommand.Create());
 rootCommand.Subcommands.Add(DropCommand.Create());
 rootCommand.Subcommands.Add(AdminCommand.Create());
 
