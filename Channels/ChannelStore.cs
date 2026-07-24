@@ -119,7 +119,18 @@ public class ChannelStore
             throw new ArgumentException(
                 $"Lost a concurrent claim on role '{role}' (now held by another session). Re-join or pick another role.");
 
-        return owner == null ? JoinResult.Joined : JoinResult.Reclaimed;
+        var result = owner == null ? JoinResult.Joined : JoinResult.Reclaimed;
+
+        // On a forced reclaim under a *new* sid, start this session at the current end of the
+        // transcript so a later recv surfaces only messages that arrive *after* the reclaim — a
+        // restarted session resumes forward instead of re-draining the whole backlog. Cursors are
+        // keyed by sid, so a new sid otherwise reads from seq 0. Guarded on "no cursor yet" so we
+        // never move an already-advanced cursor. A plain join (unclaimed role) is left at 0 so a
+        // fresh participant still catches up from the start per the protocol.
+        if (result == JoinResult.Reclaimed && !File.Exists(CursorPath(channel, sid)))
+            SetCursor(channel, sid, ReadAll(channel).Count);
+
+        return result;
     }
 
     /// <summary>
