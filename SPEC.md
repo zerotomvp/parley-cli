@@ -21,7 +21,7 @@ A session must **`join` a role before it can send or receive.** `join` claims th
 
 - If the role is unclaimed → joined. If this sid already holds it → idempotent.
 - If **another sid** holds it → rejected. This is the collision guard: two sessions can't both act as `reviewer`.
-- `join --force` takes a held role over — for a session that restarted under a new sid and needs its role back.
+- `join --force` takes a held role over — for a session that restarted under a new sid and needs its role back. On a forced reclaim the new sid's cursor is initialized to the **current end of the transcript**, so a later `recv` surfaces only messages that arrive *after* the reclaim — a restarted session resumes forward instead of re-draining the whole backlog. (Cursors are keyed by sid, so a new sid otherwise reads from seq 0; the reclaim only sets the cursor when this sid has none yet, never moving an already-advanced one. A plain join is unchanged: a fresh participant still catches up from the start.)
 
 `send`/`recv` then verify the `--as <role>` resolves to *my* sid; a session that ignored a join rejection still can't send as that role. `who <channel>` lists the claimed roles.
 
