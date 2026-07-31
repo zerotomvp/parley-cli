@@ -74,4 +74,8 @@ committed changelog section, and the NuGet global-tool package.
 
 The workflow uses a per-ref concurrency group and does not cancel an in-progress
 release. GitHub asset uploads use `--clobber`, and NuGet uses `--skip-duplicate`, so a
-rerun can repair a partial release without publishing a second package version.
+rerun can repair a partial release without publishing a second package version. If
+the workflow definition itself needs a correction after a tag is public, dispatch
+the current workflow with `release_tag` set to that existing tag. The workflow
+checks out and verifies the immutable tagged source while using the corrected
+workflow definition; leave `release_tag` empty for the normal non-publishing dry run.

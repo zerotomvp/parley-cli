@@ -10,6 +10,10 @@ on:
         description: Git ref to validate without publishing
         required: true
         default: main
+      release_tag:
+        description: Existing vMAJOR.MINOR.PATCH tag to publish or repair (leave empty for validation only)
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -29,10 +33,11 @@ jobs:
       publish: ${{ steps.release.outputs.publish }}
       version: ${{ steps.release.outputs.version }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_tag || inputs.ref) || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-dotnet@v6
@@ -45,8 +50,13 @@ jobs:
         run: |
           set -euo pipefail
           source_sha=$(git rev-parse HEAD)
-          if [[ "${GITHUB_EVENT_NAME}" == push ]]; then
-            tag=${GITHUB_REF_NAME}
+          tag=''
+          if [[ "${GITHUB_EVENT_NAME}" == push || -n '${{ inputs.release_tag }}' ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == push ]]; then
+              tag=${GITHUB_REF_NAME}
+            else
+              tag='${{ inputs.release_tag }}'
+            fi
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
               echo "release tag must be vMAJOR.MINOR.PATCH: $tag" >&2
               exit 1
@@ -61,6 +71,7 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "version=" >> "$GITHUB_OUTPUT"
           fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
 
       - name: Build with warnings as errors
@@ -246,7 +257,7 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.validate.outputs.tag }}
           VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
@@ -265,7 +276,7 @@ jobs:
         uses: NuGet/login@v1
         id: nuget
         with:
-          user: zerotomvp
+          user: georgiosd
 
       - name: Publish .NET global tool to NuGet.org
         shell: bash
