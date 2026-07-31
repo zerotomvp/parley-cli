@@ -4,35 +4,6 @@ Parley releases are driven by an annotated `vMAJOR.MINOR.PATCH` tag. The
 [`Release`](.github/workflows/release.yml) workflow can also be dispatched manually
 against any ref; manual runs build and test everything but never publish.
 
-## One-time publishing setup
-
-GitHub Releases need no additional secret. The workflow uses the repository token
-with job-scoped `contents: write`, `id-token: write`, and `attestations: write` only
-after every validation and native binary job succeeds.
-
-NuGet uses trusted publishing rather than a long-lived API key:
-
-1. Ensure the intended nuget.org account owns or may create `parley-cli`.
-2. In that account's **Trusted Publishing** settings, add a GitHub policy for owner
-   `zerotomvp`, repository `parley-cli`, workflow file `release.yml`, and environment
-   `release`.
-3. Create the GitHub `release` environment if approval protection is desired.
-4. Add repository or environment secret `NUGET_USER` containing the nuget.org profile
-   name (not an email address).
-
-Homebrew and Scoop publication runs for every tagged release after the GitHub and
-NuGet publication job succeeds. It requires:
-
-1. Public `zerotomvp/homebrew-tap` and `zerotomvp/scoop-bucket` repositories.
-2. A fine-grained personal access token owned by `zerotomvp`, limited to those two
-   repositories, with **Contents: read and write**.
-3. Add that token as repository or `release` environment secret
-   `DISTRIBUTION_TOKEN`.
-
-Missing or invalid credentials fail the release instead of silently skipping the
-distribution repositories. Generated `parley.rb` and `parley.json` are also attached
-to the GitHub Release for inspection.
-
 ## Release preparation
 
 1. Generate and review the changelog before tagging:
