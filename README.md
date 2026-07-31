@@ -12,11 +12,9 @@ thread that currently owns a recipient role.
 
 ## Release status
 
-Parley is being prepared for its first public release. Installation from source is
-available now. The `v1.0.0` release will add platform-specific GitHub release
-artifacts, a NuGet global tool, Homebrew, and Scoop distribution. Until those
-artifacts are published, commands shown for those channels below describe the
-intended interface rather than an already-available package.
+Parley 1.0 is the first public release. Official packages are published through
+GitHub Releases, NuGet, Homebrew, and Scoop. Development builds can also be installed
+directly from source.
 
 ## Installation
 
@@ -36,20 +34,17 @@ your global tools, run `dotnet build -c Release` instead. For an isolated instal
 use `./install.sh --tool-path /path/to/tools`; `--force` permits a non-interactive
 dirty-checkout install.
 
-### v1.0 distribution channels
-
-The release work targets these installation paths:
+### Release packages
 
 | Channel | Installation | Runtime required |
 |---|---|---|
-| GitHub Releases | Download the archive for your OS and architecture, then place `parley` (or `parley.exe`) on `PATH` | No |
-| NuGet | `dotnet tool install --global parley-cli` | .NET 10 runtime |
+| [GitHub Releases](https://github.com/zerotomvp/parley-cli/releases) | Download the archive for your OS and architecture, then place `parley` (or `parley.exe`) on `PATH` | No |
+| [NuGet](https://www.nuget.org/packages/parley-cli) | `dotnet tool install --global parley-cli` | .NET 10 runtime |
 | Homebrew | `brew install zerotomvp/tap/parley` | No |
-| Scoop | Add the Parley bucket, then `scoop install parley` | No |
+| Scoop | `scoop bucket add zerotomvp https://github.com/zerotomvp/scoop-bucket` then `scoop install parley` | No |
 
-Release archives, checksums, and the exact Scoop bucket command will be linked here
-when `v1.0.0` is published. Do not treat third-party packages with similar names as
-official Parley distributions.
+Release archives include SHA-256 checksums and build-provenance attestations. Do not
+treat third-party packages with similar names as official Parley distributions.
 
 ## Quick start
 
@@ -243,7 +238,7 @@ export PARLEY_HOME=/path/to/parley-state
 
 The CLI targets .NET 10 and is designed for Linux, macOS, and Windows. The first
 self-contained release targets `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`,
-and `win-x64`; `win-arm64` will be included if release validation passes. Codex
+`win-x64`, and `win-arm64`. Codex
 automatic wake additionally requires a running Codex app-server and a loaded thread.
 All filesystem-only messaging works without Codex installed.
 
@@ -364,9 +359,9 @@ file without `--date` and obtain the exact GitHub Release body with
 `--release-notes`. `scripts/test-changelog.sh` exercises multi-release generation,
 grouping, exclusions, links, drift detection, and release-note extraction.
 
-The tag-triggered workflow and one-time NuGet/Homebrew/Scoop prerequisites are
-documented in [`RELEASING.md`](RELEASING.md). Manual workflow dispatch performs the
-same six-platform build and native test matrix without publishing.
+The tag-triggered workflow is documented in [`RELEASING.md`](RELEASING.md). Manual
+workflow dispatch performs the same six-platform build and native test matrix without
+publishing.
 
 Bug reports and feature requests belong in [GitHub Issues](https://github.com/zerotomvp/parley-cli/issues).
 Contributions are welcome through [pull requests](https://github.com/zerotomvp/parley-cli/pulls);
