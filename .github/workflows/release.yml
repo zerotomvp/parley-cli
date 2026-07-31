@@ -283,34 +283,23 @@ jobs:
           retention-days: 7
 
   distributions:
-    if: needs.validate.outputs.publish == 'true' && vars.DISTRIBUTION_REPOS_READY == 'true'
+    if: needs.validate.outputs.publish == 'true'
     needs: [validate, publish]
     runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: read
     steps:
-      - name: Create narrowly scoped distribution token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.DISTRIBUTION_APP_ID }}
-          private-key: ${{ secrets.DISTRIBUTION_APP_PRIVATE_KEY }}
-          owner: zerotomvp
-          repositories: |-
-            homebrew-tap
-            scoop-bucket
-
       - uses: actions/checkout@v7
         with:
           repository: zerotomvp/homebrew-tap
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.DISTRIBUTION_TOKEN }}
           path: homebrew-tap
 
       - uses: actions/checkout@v7
         with:
           repository: zerotomvp/scoop-bucket
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.DISTRIBUTION_TOKEN }}
           path: scoop-bucket
 
       - uses: actions/download-artifact@v8

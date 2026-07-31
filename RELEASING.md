@@ -20,18 +20,18 @@ NuGet uses trusted publishing rather than a long-lived API key:
 4. Add repository or environment secret `NUGET_USER` containing the nuget.org profile
    name (not an email address).
 
-Homebrew and Scoop publication is intentionally gated because the destination
-repositories do not yet exist. Before setting the gate:
+Homebrew and Scoop publication runs for every tagged release after the GitHub and
+NuGet publication job succeeds. It requires:
 
-1. Create public `zerotomvp/homebrew-tap` and `zerotomvp/scoop-bucket` repositories.
-2. Create/install a GitHub App with **Contents: read and write** limited to those two
-   repositories.
-3. Add `DISTRIBUTION_APP_ID` and `DISTRIBUTION_APP_PRIVATE_KEY` as secrets in the
-   `release` environment or repository.
-4. Set repository variable `DISTRIBUTION_REPOS_READY=true`.
+1. Public `zerotomvp/homebrew-tap` and `zerotomvp/scoop-bucket` repositories.
+2. A fine-grained personal access token owned by `zerotomvp`, limited to those two
+   repositories, with **Contents: read and write**.
+3. Add that token as repository or `release` environment secret
+   `DISTRIBUTION_TOKEN`.
 
-Until that variable is set, the release still publishes generated `parley.rb` and
-`parley.json` assets for review, but does not attempt cross-repository writes.
+Missing or invalid credentials fail the release instead of silently skipping the
+distribution repositories. Generated `parley.rb` and `parley.json` are also attached
+to the GitHub Release for inspection.
 
 ## Release preparation
 
