@@ -70,7 +70,7 @@ public class ChannelStore
         var path = RosterPath(channel);
         var result = new List<RosterEntryWire>();
         if (!File.Exists(path)) return result;
-        foreach (var line in File.ReadAllLines(path))
+        foreach (var line in ReadLinesShared(path))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             RosterEntryWire? e;
@@ -218,7 +218,7 @@ public class ChannelStore
         var result = new List<Message>();
         if (!File.Exists(path)) return result;
 
-        foreach (var line in File.ReadAllLines(path))
+        foreach (var line in ReadLinesShared(path))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             MessageWire? wire;
@@ -356,6 +356,21 @@ public class ChannelStore
     private static void SafeDelete(string path)
     {
         if (File.Exists(path)) File.Delete(path);
+    }
+
+    /// <summary>
+    /// Reads a JSONL snapshot without excluding concurrent appenders. On Windows, the default
+    /// sharing mode used by <see cref="File.ReadAllLines(string)"/> denies writers; that conflicts
+    /// with the lock-free append protocol even when each writer itself permits readers.
+    /// </summary>
+    private static List<string> ReadLinesShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line) lines.Add(line);
+        return lines;
     }
 
     // 2-arg open only. open(2) is variadic — `int open(const char*, int, ...)` — and the
