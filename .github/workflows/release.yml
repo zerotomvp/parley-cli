@@ -108,7 +108,7 @@ jobs:
             [[ "$(basename "$package")" == 'parley-cli.${{ steps.release.outputs.version }}.nupkg' ]]
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nuget-package
           path: nuget/*.nupkg
@@ -183,7 +183,7 @@ jobs:
           $archive = Get-ChildItem '${{ runner.temp }}/parley-release/artifacts' -Filter '*.zip' | Select-Object -First 1
           ./scripts/test-release.ps1 $archive.FullName
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.rid }}
           path: ${{ runner.temp }}/parley-release/artifacts/*
@@ -209,13 +209,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: artifacts
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: nuget-package
           path: artifacts
@@ -275,7 +275,7 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-manifests
           path: manifests
@@ -313,7 +313,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           path: scoop-bucket
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: package-manifests
           path: manifests
