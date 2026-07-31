@@ -87,6 +87,22 @@ Every send requires exactly one delivery mode: `--to`, `--broadcast`, or `--ack`
 For two different agent sessions, run each role's commands from its own session.
 The example shows them together only to make the exchange easy to follow.
 
+## Supported coding agents
+
+Parley's durable filesystem protocol works with any agent that can invoke a CLI and
+share `PARLEY_HOME`. The integrations below add harness-specific identity or wake-up
+behavior; they do not change the transcript format.
+
+| Coding agent | Support | How it works |
+|---|---|---|
+| [OpenAI Codex CLI](https://github.com/openai/codex) | First-class | Detects the current thread from `CODEX_THREAD_ID`. With a persistent app-server, `send --wake auto` starts or steers the exact loaded recipient thread; otherwise use `recv --wait`. |
+| [Anthropic Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | First-class | Detects the current session from `CLAUDE_CODE_SESSION_ID`. Communication uses the durable CLI protocol and a foreground `recv --wait`; Claude Code may keep that command as a background task after its tool timeout. |
+| All other coding agents | Protocol-compatible | Supply a stable SID with `--sid` or `PARLEY_ID` (the role name is the final fallback), share `PARLEY_HOME`, and use `recv --last-seen <seq> --wait`. There is no harness-specific automatic wake-up. |
+
+Runtime type is detected on each operation and is never stored in the roster. This
+matters after `join --force`: ownership follows the new session ID without leaving
+behind a stale claim that a role belongs to Codex or any other harness.
+
 ## Roles and session identity
 
 A role is the human-readable address claimed with `--as`, such as `author` or
@@ -131,7 +147,101 @@ The sender of message `#12` becomes the recipient. This writes an ordinary
 Skip the acknowledgement when replying immediately, never acknowledge an
 acknowledgement, and always send the substantive result afterward.
 
-## Waiting and automatic Codex wake-up
+## Codex: durable delivery with app-server wake-up
+
+### Why Parley does not rely on a blocking receive alone
+
+The simple agent-to-agent pattern is to leave `parley recv --wait` running in the
+foreground. In practice, a harness can move a long-running command out of the active
+turn, lose its output, or lose continuity while polling it. The receive process may
+then advance its own cursor even though the model never received the message. Codex
+has had related reports involving [timeouts that leave child processes and pipes
+open](https://github.com/openai/codex/issues/4337), [long-running process lifetime
+across turns](https://github.com/openai/codex/issues/10767), and [lost turn continuity
+while polling active commands](https://github.com/openai/codex/issues/14824).
+
+Those reports are related failure modes, not a claim that they all share Parley's
+exact reproduction. They make a blocking shell command a poor sole notification
+mechanism, however. Parley therefore separates delivery from notification:
+
+1. `send` first appends the complete message to the durable JSONL transcript.
+2. It probes the currently running Codex app-server and matches the recipient SID to
+   a loaded thread.
+3. It injects only a short receive notice, using `turn/start` for an idle thread or
+   `turn/steer` for an active one.
+4. The model runs `recv --last-seen <seq>` and obtains the actual message from the
+   transcript. If the notice is missed, the same explicit checkpoint replays it.
+
+Wake-up is consequently best-effort, while delivery remains recoverable and does
+not depend on Codex. Parley's app-server client uses the local Unix-socket transport;
+it does not expose Codex over an unauthenticated network listener.
+
+### Run Codex against a persistent app-server
+
+Start one long-lived app-server and connect every interactive Codex TUI to its
+default Unix socket:
+
+```bash
+codex app-server --listen unix://
+# In another terminal:
+codex --remote unix://
+```
+
+For daily use, supervise the first command as a user service and reserve a short
+`cx` command for remote-backed interactive sessions. Keep the ordinary `codex`
+command unchanged because some subcommands do not accept `--remote`.
+
+The following Home Manager recipe provides a systemd user service on Linux, a
+KeepAlive launchd agent on macOS, and the `cx` alias on both:
+
+```nix
+{ config, lib, pkgs, ... }:
+
+let
+  codexBin = "${config.home.homeDirectory}/.npm-global/bin/codex";
+in {
+  home.file.".local/bin/codex-remote" = {
+    executable = true;
+    text = ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec ${codexBin} --remote unix:// "$@"
+    '';
+  };
+  home.shellAliases.cx = "${config.home.homeDirectory}/.local/bin/codex-remote";
+
+  systemd.user.services.codex-app-server = lib.mkIf pkgs.stdenv.isLinux {
+    Unit.Description = "Persistent local Codex app-server";
+    Service = {
+      ExecStart = "${codexBin} app-server --listen unix://";
+      Restart = "always";
+      RestartSec = "5s";
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
+
+  launchd.agents.codex-app-server = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [ codexBin "app-server" "--listen" "unix://" ];
+      RunAtLoad = true;
+      KeepAlive = true;
+      ProcessType = "Interactive";
+    };
+  };
+}
+```
+
+Adjust `codexBin` to the absolute path returned by `command -v codex`. After applying
+the configuration, start the Linux unit with
+`systemctl --user enable --now codex-app-server`; launchd loads the macOS agent when
+Home Manager activates it. Then launch participating sessions with `cx`.
+
+Native Windows can use Parley's filesystem delivery, but this automatic-wake design
+requires Codex's Unix-socket app-server transport. Run Codex and Parley together in
+WSL for the same persistent-service setup.
+
+### Wake and wait behavior
 
 `send` defaults to `--wake auto`. On every send, Parley compares each recipient
 role's current session ID with threads loaded in a running Codex app-server. A match
