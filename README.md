@@ -364,6 +364,10 @@ file without `--date` and obtain the exact GitHub Release body with
 `--release-notes`. `scripts/test-changelog.sh` exercises multi-release generation,
 grouping, exclusions, links, drift detection, and release-note extraction.
 
+The tag-triggered workflow and one-time NuGet/Homebrew/Scoop prerequisites are
+documented in [`RELEASING.md`](RELEASING.md). Manual workflow dispatch performs the
+same six-platform build and native test matrix without publishing.
+
 Bug reports and feature requests belong in [GitHub Issues](https://github.com/zerotomvp/parley-cli/issues).
 Contributions are welcome through [pull requests](https://github.com/zerotomvp/parley-cli/pulls);
 please describe the behavioral change and how it was verified. Parley is distributed

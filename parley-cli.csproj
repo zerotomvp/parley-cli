@@ -14,6 +14,11 @@
     <Authors>Georgios Diamantopoulos</Authors>
     <Description>A durable, role-addressed message channel for coordinating independent agent sessions</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/zerotomvp/parley-cli</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/zerotomvp/parley-cli.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>agents;cli;codex;claude;coordination</PackageTags>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerDefaultPreReleaseIdentifiers>dev.0</MinVerDefaultPreReleaseIdentifiers>
   </PropertyGroup>
@@ -52,6 +57,7 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="CHANGELOG.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>

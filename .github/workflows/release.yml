@@ -1,0 +1,352 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to validate without publishing
+        required: true
+        default: main
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=$(git rev-parse HEAD)
+          if [[ "${GITHUB_EVENT_NAME}" == push ]]; then
+            tag=${GITHUB_REF_NAME}
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "release tag must be vMAJOR.MINOR.PATCH: $tag" >&2
+              exit 1
+            }
+            [[ "$(git rev-list -n 1 "$tag")" == "$source_sha" ]] || {
+              echo "tag does not resolve to the checked-out commit" >&2
+              exit 1
+            }
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Build with warnings as errors
+        run: dotnet build -c Release -warnaserror
+
+      - name: Verify source version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(dotnet run -c Release --no-build -- --version)
+          expected='${{ steps.release.outputs.version }}'
+          if [[ -n "$expected" && "$actual" != "$expected" ]]; then
+            echo "tag version $expected does not match binary version $actual" >&2
+            exit 1
+          fi
+          echo "actual=$actual" >> "$GITHUB_OUTPUT"
+
+      - name: Run process-level integration tests
+        run: dotnet test tests/ParleyCli.IntegrationTests/ParleyCli.IntegrationTests.csproj -c Release --no-build
+
+      - name: Test release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/test-changelog.sh
+          scripts/test-package-manifests.sh
+          bash -n scripts/test-release.sh scripts/test-codex-wake.sh
+          pwsh -NoProfile -Command "[void][scriptblock]::Create((Get-Content -Raw scripts/build-release.ps1))"
+          pwsh -NoProfile -Command "[void][scriptblock]::Create((Get-Content -Raw scripts/test-release.ps1))"
+
+      - name: Verify committed changelog
+        if: steps.release.outputs.publish == 'true'
+        run: scripts/generate-changelog.py --version '${{ steps.release.outputs.version }}' --check
+
+      - name: Pack .NET global tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p nuget
+          dotnet pack -c Release --no-build -o nuget
+          package=$(find nuget -maxdepth 1 -name 'parley-cli.*.nupkg' -print -quit)
+          [[ -n "$package" ]]
+          if [[ '${{ steps.release.outputs.publish }}' == true ]]; then
+            [[ "$(basename "$package")" == 'parley-cli.${{ steps.release.outputs.version }}.nupkg' ]]
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: nuget/*.nupkg
+          if-no-files-found: error
+          retention-days: 7
+
+  binaries:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            rid: linux-x64
+            executable: parley
+            smoke: bash
+          - runner: ubuntu-24.04-arm
+            rid: linux-arm64
+            executable: parley
+            smoke: bash
+          - runner: macos-15-intel
+            rid: osx-x64
+            executable: parley
+            smoke: bash
+          - runner: macos-15
+            rid: osx-arm64
+            executable: parley
+            smoke: bash
+          - runner: windows-2025
+            rid: win-x64
+            executable: parley.exe
+            smoke: powershell
+          - runner: windows-11-arm
+            rid: win-arm64
+            executable: parley.exe
+            smoke: powershell
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build native release archive
+        shell: pwsh
+        run: >-
+          ./scripts/build-release.ps1
+          -Runtime '${{ matrix.rid }}'
+          -OutputDirectory '${{ runner.temp }}/parley-release'
+          ${{ needs.validate.outputs.publish == 'true' && format('-ExpectedVersion ''{0}''', needs.validate.outputs.version) || '' }}
+
+      - name: Run full suite against published executable
+        shell: pwsh
+        run: |
+          $env:PARLEY_TEST_EXECUTABLE = '${{ runner.temp }}/parley-release/publish/${{ matrix.executable }}'
+          dotnet test tests/ParleyCli.IntegrationTests/ParleyCli.IntegrationTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Published-executable integration tests failed.' }
+
+      - name: Smoke-test Unix archive
+        if: matrix.smoke == 'bash'
+        shell: bash
+        run: scripts/test-release.sh "$(find '${{ runner.temp }}/parley-release/artifacts' -type f -name '*.tar.gz' -print -quit)"
+
+      - name: Smoke-test Windows archive
+        if: matrix.smoke == 'powershell'
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem '${{ runner.temp }}/parley-release/artifacts' -Filter '*.zip' | Select-Object -First 1
+          ./scripts/test-release.ps1 $archive.FullName
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.rid }}
+          path: ${{ runner.temp }}/parley-release/artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: needs.validate.outputs.publish == 'true'
+    needs: [validate, binaries]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: artifacts
+
+      - name: Generate checksums, manifests, and release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -printf '%f\n' \
+            | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+          cd ..
+          scripts/render-package-manifests.py \
+            --version '${{ needs.validate.outputs.version }}' \
+            --checksums artifacts/SHA256SUMS \
+            --output manifests
+          cp manifests/homebrew/Formula/parley.rb artifacts/parley.rb
+          cp manifests/scoop/bucket/parley.json artifacts/parley.json
+          scripts/generate-changelog.py \
+            --version '${{ needs.validate.outputs.version }}' \
+            --release-notes > release-notes.md
+
+      - name: Attest release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/*
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --clobber
+            gh release edit "$TAG" --title "Parley $VERSION" --notes-file release-notes.md --draft=false
+          else
+            gh release create "$TAG" --verify-tag --draft \
+              --title "Parley $VERSION" --notes-file release-notes.md
+            gh release upload "$TAG" artifacts/* --clobber
+            gh release edit "$TAG" --draft=false
+          fi
+
+      - name: Exchange GitHub OIDC token for temporary NuGet API key
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish .NET global tool to NuGet.org
+        shell: bash
+        run: >-
+          dotnet nuget push 'artifacts/parley-cli.${{ needs.validate.outputs.version }}.nupkg'
+          --api-key '${{ steps.nuget.outputs.NUGET_API_KEY }}'
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-manifests
+          path: manifests
+          if-no-files-found: error
+          retention-days: 7
+
+  distributions:
+    if: needs.validate.outputs.publish == 'true' && vars.DISTRIBUTION_REPOS_READY == 'true'
+    needs: [validate, publish]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Create narrowly scoped distribution token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.DISTRIBUTION_APP_ID }}
+          private-key: ${{ secrets.DISTRIBUTION_APP_PRIVATE_KEY }}
+          owner: zerotomvp
+          repositories: |-
+            homebrew-tap
+            scoop-bucket
+
+      - uses: actions/checkout@v4
+        with:
+          repository: zerotomvp/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - uses: actions/checkout@v4
+        with:
+          repository: zerotomvp/scoop-bucket
+          token: ${{ steps.app-token.outputs.token }}
+          path: scoop-bucket
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-manifests
+          path: manifests
+
+      - name: Validate and update Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -c manifests/homebrew/Formula/parley.rb
+          mkdir -p homebrew-tap/Formula
+          cp manifests/homebrew/Formula/parley.rb homebrew-tap/Formula/parley.rb
+
+      - name: Validate and update Scoop manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m json.tool manifests/scoop/bucket/parley.json >/dev/null
+          mkdir -p scoop-bucket/bucket
+          cp manifests/scoop/bucket/parley.json scoop-bucket/bucket/parley.json
+
+      - name: Commit distribution updates
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repo in homebrew-tap scoop-bucket; do
+            git -C "$repo" config user.name 'parley-release[bot]'
+            git -C "$repo" config user.email 'parley-release[bot]@users.noreply.github.com'
+            if git -C "$repo" diff --quiet; then
+              continue
+            fi
+            git -C "$repo" add .
+            git -C "$repo" commit -m "parley: update to v$VERSION"
+            git -C "$repo" push
+          done
