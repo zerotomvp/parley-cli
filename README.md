@@ -346,7 +346,23 @@ MinVer; there is no independent version file:
 Release tags must point at clean, fully verified commits. CI must fetch full history
 and tags so the same source version reaches NuGet metadata, `--version`, archive
 names, and distribution manifests. See [`SPEC.md`](SPEC.md) for protocol internals
-and the eventual `CHANGELOG.md` for release history.
+and [`CHANGELOG.md`](CHANGELOG.md) for release history.
+
+Prepare the changelog before creating a release tag:
+
+```bash
+scripts/generate-changelog.py --version 1.1.0 --date 2026-08-15
+scripts/generate-changelog.py --version 1.1.0 --date 2026-08-15 --check
+```
+
+The generator rebuilds every release section from reachable semantic-version tags
+and commit subjects. It groups features, fixes, documentation, and other changes;
+internal test/chore/CI/style/refactor and merge commits are omitted. Commit the
+reviewed result with an excluded subject such as `chore(release): prepare v1.1.0`,
+then place the annotated tag on that commit. After tagging, CI can verify the same
+file without `--date` and obtain the exact GitHub Release body with
+`--release-notes`. `scripts/test-changelog.sh` exercises multi-release generation,
+grouping, exclusions, links, drift detection, and release-note extraction.
 
 Bug reports and feature requests belong in [GitHub Issues](https://github.com/zerotomvp/parley-cli/issues).
 Contributions are welcome through [pull requests](https://github.com/zerotomvp/parley-cli/pulls);
