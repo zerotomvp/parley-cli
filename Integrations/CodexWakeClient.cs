@@ -14,6 +14,11 @@ namespace ParleyCli.Integrations;
 /// </summary>
 public sealed class CodexWakeClient
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public enum WakeStatus { Unavailable, NotLoaded, Woken, Failed }
 
     public readonly record struct WakeResult(WakeStatus Status, string? Error = null);
@@ -37,27 +42,31 @@ public sealed class CodexWakeClient
             if (socketPath is null) return new(WakeStatus.Unavailable);
 
             await using var connection = await AppServerConnection.ConnectAsync(socketPath, ct);
-            await connection.SendAsync(new
+            await connection.SendAsync(new RpcRequest<InitializeParams>
             {
-                method = "initialize",
-                id = 1,
-                @params = new
+                Method = "initialize",
+                Id = 1,
+                Params = new InitializeParams
                 {
-                    clientInfo = new { name = "parley_cli", title = "Parley CLI", version = "1" }
+                    ClientInfo = new ClientInfo
+                    {
+                        Name = "parley_cli", Title = "Parley CLI", Version = "1"
+                    }
                 }
             }, ct);
-            await connection.SendAsync(new { method = "initialized", @params = new { } }, ct);
-            using var initialized = await connection.ReadResponseAsync(1, ct);
+            await connection.SendAsync(new RpcRequest<EmptyParams>
+                { Method = "initialized", Params = new EmptyParams() }, ct);
+            var initialized = await connection.ReadResponseAsync<RpcResponse>(1, ct);
             if (HasError(initialized, out var initError))
                 return new(WakeStatus.Failed, initError);
 
-            await connection.SendAsync(new { method = "thread/loaded/list", id = 2, @params = new { } }, ct);
-            using var loaded = await connection.ReadResponseAsync(2, ct);
+            await connection.SendAsync(new RpcRequest<EmptyParams>
+                { Method = "thread/loaded/list", Id = 2, Params = new EmptyParams() }, ct);
+            var loaded = await connection.ReadResponseAsync<RpcResponse<LoadedThreadsResult>>(2, ct);
             if (HasError(loaded, out var loadedError))
                 return new(WakeStatus.Failed, loadedError);
 
-            var isLoaded = loaded.RootElement.GetProperty("result").GetProperty("data")
-                .EnumerateArray().Any(e => e.GetString() == threadId);
+            var isLoaded = loaded.Result?.Data.Contains(threadId, StringComparer.Ordinal) == true;
             if (!isLoaded) return new(WakeStatus.NotLoaded);
             if (notification is null) return new(WakeStatus.Woken);
 
@@ -99,10 +108,8 @@ public sealed class CodexWakeClient
             await stderrTask;
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(stdout)) return null;
 
-            using var status = JsonDocument.Parse(stdout);
-            var root = status.RootElement;
-            if (!root.TryGetProperty("status", out var state) || state.GetString() != "running") return null;
-            return root.TryGetProperty("socketPath", out var path) ? path.GetString() : null;
+            var status = JsonSerializer.Deserialize<DaemonVersionStatus>(stdout, JsonOptions);
+            return status?.Status == "running" ? status.SocketPath : null;
         }
         finally
         {
@@ -120,52 +127,44 @@ public sealed class CodexWakeClient
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var readId = 3 + attempt * 2;
-            await connection.SendAsync(new
+            await connection.SendAsync(new RpcRequest<ThreadReadParams>
             {
-                method = "thread/read",
-                id = readId,
-                @params = new { threadId, includeTurns = true }
+                Method = "thread/read",
+                Id = readId,
+                Params = new ThreadReadParams { ThreadId = threadId, IncludeTurns = true }
             }, ct);
-            using var read = await connection.ReadResponseAsync(readId, ct);
+            var read = await connection.ReadResponseAsync<RpcResponse<ThreadReadResult>>(readId, ct);
             if (HasError(read, out var readError)) return new(WakeStatus.Failed, readError);
 
-            var thread = read.RootElement.GetProperty("result").GetProperty("thread");
-            string? activeTurnId = null;
-            if (thread.TryGetProperty("turns", out var turns))
-            {
-                foreach (var turn in turns.EnumerateArray())
-                    if (turn.TryGetProperty("status", out var status)
-                        && status.GetString() == "inProgress"
-                        && turn.TryGetProperty("id", out var id))
-                        activeTurnId = id.GetString();
-            }
+            var activeTurnId = read.Result?.Thread?.Turns
+                .LastOrDefault(t => t.Status == "inProgress")?.Id;
 
             var submitId = readId + 1;
             object request = activeTurnId is not null
-                ? new
+                ? new RpcRequest<TurnSteerParams>
                 {
-                    method = "turn/steer",
-                    id = submitId,
-                    @params = new
+                    Method = "turn/steer",
+                    Id = submitId,
+                    Params = new TurnSteerParams
                     {
-                        threadId,
-                        input = new[] { new { type = "text", text = notification } },
-                        expectedTurnId = activeTurnId
+                        ThreadId = threadId,
+                        Input = [new TextInput { Text = notification }],
+                        ExpectedTurnId = activeTurnId
                     }
                 }
-                : new
+                : new RpcRequest<TurnStartParams>
                 {
-                    method = "turn/start",
-                    id = submitId,
-                    @params = new
+                    Method = "turn/start",
+                    Id = submitId,
+                    Params = new TurnStartParams
                     {
-                        threadId,
-                        input = new[] { new { type = "text", text = notification } }
+                        ThreadId = threadId,
+                        Input = [new TextInput { Text = notification }]
                     }
                 };
 
             await connection.SendAsync(request, ct);
-            using var submitted = await connection.ReadResponseAsync(submitId, ct);
+            var submitted = await connection.ReadResponseAsync<RpcResponse>(submitId, ct);
             if (!HasError(submitted, out var submitError)) return new(WakeStatus.Woken);
             if (attempt == 1) return new(WakeStatus.Failed, submitError);
         }
@@ -173,17 +172,15 @@ public sealed class CodexWakeClient
         return new(WakeStatus.Failed, "Codex thread changed state while waking it.");
     }
 
-    private static bool HasError(JsonDocument response, out string? error)
+    private static bool HasError(RpcResponse response, out string? error)
     {
-        if (!response.RootElement.TryGetProperty("error", out var value))
+        if (response.Error is null)
         {
             error = null;
             return false;
         }
 
-        error = value.TryGetProperty("message", out var message)
-            ? message.GetString()
-            : value.ToString();
+        error = response.Error.Message ?? $"JSON-RPC error {response.Error.Code}";
         return true;
     }
 
@@ -239,11 +236,12 @@ public sealed class CodexWakeClient
 
         public Task SendAsync(object message, CancellationToken ct)
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(message);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);
             return _webSocket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
         }
 
-        public async Task<JsonDocument> ReadResponseAsync(int id, CancellationToken ct)
+        public async Task<TResponse> ReadResponseAsync<TResponse>(int id, CancellationToken ct)
+            where TResponse : RpcResponse
         {
             while (true)
             {
@@ -258,12 +256,12 @@ public sealed class CodexWakeClient
                     buffer.Write(chunk, 0, result.Count);
                 } while (!result.EndOfMessage);
 
-                var document = JsonDocument.Parse(buffer.ToArray());
-                if (document.RootElement.TryGetProperty("id", out var responseId)
-                    && responseId.ValueKind == JsonValueKind.Number
-                    && responseId.GetInt32() == id)
-                    return document;
-                document.Dispose();
+                var bytes = buffer.ToArray();
+                var envelope = JsonSerializer.Deserialize<RpcResponse>(bytes, JsonOptions)
+                    ?? throw new JsonException("Codex app-server returned an empty JSON-RPC message.");
+                if (envelope.Id == id)
+                    return JsonSerializer.Deserialize<TResponse>(bytes, JsonOptions)
+                           ?? throw new JsonException("Codex app-server returned an invalid JSON-RPC response.");
             }
         }
 
