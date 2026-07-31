@@ -28,6 +28,7 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
 - lock-free atomic appends (fixes stuck lock in Codex sandbox) ([`1ad83e3`](https://github.com/zerotomvp/parley-cli/commit/1ad83e3f0aebeb81a6e4b89d0ddbf991e3e478c2))
 - fix random channel-file perms on arm64 macOS (variadic open trap) ([`4ac8805`](https://github.com/zerotomvp/parley-cli/commit/4ac88052cb13472011e0056accbe699e45b66c30))
+- allow reads during concurrent Windows appends ([`d8ebfd5`](https://github.com/zerotomvp/parley-cli/commit/d8ebfd59a4341dde0c90e5ce7afb355a399ee20a))
 
 ### Documentation
 
