@@ -10,11 +10,28 @@ shared conversation is persisted under `~/.parley/channels/` (or `PARLEY_HOME`).
 running Codex app-server is optional: when available, Parley can wake the exact Codex
 thread that currently owns a recipient role.
 
+## Contents
+
+- [Release status](#release-status)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Supported coding agents](#supported-coding-agents)
+- [Roles and session identity](#roles-and-session-identity)
+- [Scope and limitations](#scope-and-limitations)
+- [Acknowledging longer work](#acknowledging-longer-work)
+- [Codex: durable delivery with app-server wake-up](#codex-durable-delivery-with-app-server-wake-up)
+- [Ending an exchange](#ending-an-exchange)
+- [Commands](#commands)
+- [Agent orientation prompt](#agent-orientation-prompt)
+- [Storage and platform support](#storage-and-platform-support)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+
 ## Release status
 
 Parley 1.0 is the first public release. Official packages are published through
 GitHub Releases, NuGet, Homebrew, and Scoop. Development builds can also be installed
-directly from source.
+directly from source. See [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
 ## Installation
 
@@ -310,28 +327,22 @@ Run `parley <command> --help` for all options.
 
 ## Agent orientation prompt
 
-Give this to each participating session after filling in the channel and role:
+Give each participating session only the bootstrap information it cannot discover
+itself. `join` prints the appropriate Codex-wake or blocking-listener instructions:
 
 ```text
-You can message the other session(s) directly via `parley`.
-
+Use `parley` to communicate directly with the other session(s).
 Channel: <CHANNEL-xxxxx>
 Your role: <ROLE>
+Other role(s): <OTHER-ROLE(S)>
 
-- Join once: parley join <CHANNEL-xxxxx> --as <ROLE>
-- Inspect roles: parley who <CHANNEL-xxxxx>
-- Open: parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --expect-new -m 'message'
-- Send: parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> -m 'message'
-- Receive: parley recv <CHANNEL-xxxxx> --as <ROLE> --last-seen <SEQ>
-- Wait when required: parley recv <CHANNEL-xxxxx> --as <ROLE> --last-seen <SEQ> --wait
-- Acknowledge longer work: parley send <CHANNEL-xxxxx> --as <ROLE> --ack <REQUEST-SEQ> -m 'current action'
-- Close without waiting: parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --close -m 'final message'
+Run `parley join <CHANNEL-xxxxx> --as <ROLE>` once, then follow the receive
+instructions it prints. Send with:
+`parley send <CHANNEL-xxxxx> --as <ROLE> --to <OTHER-ROLE> -m 'complete thought'`.
 
 Always pass the highest sequence actually present in your context as --last-seen
-(0 if none); a synthetic wake notice does not count as seeing its message. Follow
-the wake/listener mode printed by join. Put a complete thought in one message. Do
-not resend after a send --wait timeout. Do not reply to a [closed] exchange. Use
-stdin for multi-line messages, for example: printf 'complete thought\n' | parley send ...
+(0 if none); a synthetic wake notice does not count as seeing its message. Do not
+resend after a timeout or reply to a [closed] exchange.
 ```
 
 The persistence schema, delivery invariants, append semantics, and Codex app-server
@@ -434,44 +445,6 @@ clean for Parley's code but Serilog's runtime type loading and object destructur
 produce `IL2057`/`IL2072`; suppressing those warnings would make the artifact less
 trustworthy. The untrimmed single-file build is validated by the complete integration
 suite instead.
-
-## Versioning and releases
-
-Versions come from the latest reachable `v`-prefixed semantic Git tag through
-MinVer; there is no independent version file:
-
-- On `v1.0.0`, the package, assembly informational version, and `parley --version`
-  report `1.0.0`.
-- Commits after that tag use the next patch as an unreleasable development version,
-  such as `1.0.1-dev.0.3` for three commits after the tag.
-- Before any reachable version tag, builds use `0.0.0-dev.0.<height>`.
-- Tracked working-tree changes append `-dirty` to an exact release version or
-  `.dirty` to a development prerelease. Untracked files do not alter build identity.
-
-Release tags must point at clean, fully verified commits. CI must fetch full history
-and tags so the same source version reaches NuGet metadata, `--version`, archive
-names, and distribution manifests. See [`SPEC.md`](SPEC.md) for protocol internals
-and [`CHANGELOG.md`](CHANGELOG.md) for release history.
-
-Prepare the changelog before creating a release tag:
-
-```bash
-scripts/generate-changelog.py --version 1.1.0 --date 2026-08-15
-scripts/generate-changelog.py --version 1.1.0 --date 2026-08-15 --check
-```
-
-The generator rebuilds every release section from reachable semantic-version tags
-and commit subjects. It groups features, fixes, documentation, and other changes;
-internal test/chore/CI/style/refactor and merge commits are omitted. Commit the
-reviewed result with an excluded subject such as `chore(release): prepare v1.1.0`,
-then place the annotated tag on that commit. After tagging, CI can verify the same
-file without `--date` and obtain the exact GitHub Release body with
-`--release-notes`. `scripts/test-changelog.sh` exercises multi-release generation,
-grouping, exclusions, links, drift detection, and release-note extraction.
-
-The tag-triggered workflow is documented in [`RELEASING.md`](RELEASING.md). Manual
-workflow dispatch performs the same six-platform build and native test matrix without
-publishing.
 
 Bug reports and feature requests belong in [GitHub Issues](https://github.com/zerotomvp/parley-cli/issues).
 Contributions are welcome through [pull requests](https://github.com/zerotomvp/parley-cli/pulls);

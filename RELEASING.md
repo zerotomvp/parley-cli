@@ -4,6 +4,18 @@ Parley releases are driven by an annotated `vMAJOR.MINOR.PATCH` tag. The
 [`Release`](.github/workflows/release.yml) workflow can also be dispatched manually
 against any ref; manual runs build and test everything but never publish.
 
+## Version derivation
+
+MinVer derives every build version from the latest reachable `v`-prefixed semantic
+Git tag; there is no independent version file. An exact tag such as `v1.0.0` produces
+version `1.0.0`. Later commits use the next patch development version, while builds
+before the first tag use `0.0.0-dev.0.<height>`. Tracked working-tree changes add a
+dirty suffix; untracked files do not change build identity.
+
+Release automation must fetch full history and tags so NuGet metadata, `--version`,
+archive names, and distribution manifests receive the same version. Release tags
+must point at clean, fully verified commits.
+
 ## Release preparation
 
 1. Generate and review the changelog before tagging:
