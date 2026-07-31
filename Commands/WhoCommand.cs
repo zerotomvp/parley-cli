@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
+using ParleyCli.Serialization;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -38,7 +39,7 @@ public static class WhoCommand
             if (json)
             {
                 foreach (var p in participants)
-                    Console.WriteLine(JsonSerializer.Serialize(p));
+                    Console.WriteLine(JsonSerializer.Serialize(p, ParleyJsonContext.Default.Participant));
                 return Task.FromResult(0);
             }
 

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ParleyCli.Models;
+using ParleyCli.Serialization;
 
 namespace ParleyCli.Channels;
 
@@ -73,7 +74,7 @@ public class ChannelStore
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             RosterEntryWire? e;
-            try { e = JsonSerializer.Deserialize<RosterEntryWire>(line, JsonOpts); }
+            try { e = JsonSerializer.Deserialize(line, ParleyJsonContext.Default.RosterEntryWire); }
             catch { continue; }
             if (e != null) result.Add(e);
         }
@@ -111,7 +112,8 @@ public class ChannelStore
                 "Pick a different role, or pass --force to take it over (e.g. after a restart).");
 
         var wire = new RosterEntryWire(DateTimeOffset.UtcNow.ToString("o"), role, sid, force ? true : null);
-        AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(wire, JsonOpts) + "\n"));
+        AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(wire, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
 
         // Re-read: if a concurrent claim landed after ours, latest-wins may have handed the role away.
         var nowOwner = OwnerOf(channel, role);
@@ -199,7 +201,8 @@ public class ChannelStore
 
         var wire = new MessageWire(DateTimeOffset.UtcNow.ToString("o"), from, sid, text,
             hasTo ? to : null, broadcast ? true : null, closed ? true : null);
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(wire, JsonOpts) + "\n");
+        var bytes = Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(wire, ParleyJsonContext.Default.MessageWire) + "\n");
         AtomicAppend(TranscriptPath(channel), bytes);
 
         // seq = my line position. Re-reading is exact for the common sequential case; under a
@@ -219,7 +222,7 @@ public class ChannelStore
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             MessageWire? wire;
-            try { wire = JsonSerializer.Deserialize<MessageWire>(line, JsonOpts); }
+            try { wire = JsonSerializer.Deserialize(line, ParleyJsonContext.Default.MessageWire); }
             catch { continue; } // tolerate a torn/partial line rather than crashing a read
             if (wire == null) continue;
             result.Add(new Message(result.Count + 1, wire.Ts, wire.From, wire.Sid, wire.Text,
@@ -320,7 +323,7 @@ public class ChannelStore
             : string.Join("\n", all.Select(m =>
                   JsonSerializer.Serialize(
                       new MessageWire(m.Ts, m.From, m.Sid, m.Text, m.To?.ToArray(), m.Broadcast, m.Closed),
-                      JsonOpts))) + "\n";
+                      ParleyJsonContext.Default.MessageWire))) + "\n";
         File.WriteAllText(tmp, body);
         File.Move(tmp, path, overwrite: true);
 

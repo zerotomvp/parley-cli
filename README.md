@@ -305,9 +305,28 @@ dotnet run -- --help
 ```
 
 `PARLEY_HOME` makes manual smoke tests safe to isolate from real conversations. The
-repository is adding process-level integration tests and published-artifact smoke
-tests as part of the v1.0 release preparation; their commands will be documented
-when committed.
+process-level integration suite launches the actual CLI with an isolated store:
+
+```bash
+dotnet test tests/ParleyCli.IntegrationTests/ParleyCli.IntegrationTests.csproj -c Release
+```
+
+Set `PARLEY_TEST_EXECUTABLE=/absolute/path/to/parley` to run the same suite against a
+published binary. Packaging smoke tests accept a release archive:
+
+```bash
+scripts/test-release.sh path/to/parley-linux-x64.tar.gz
+./scripts/test-release.ps1 path/to/parley-win-x64.zip
+```
+
+The live Codex wake check is opt-in because it needs a running app-server and a
+loaded thread. Set `PARLEY_LIVE_CODEX_SID` and run `scripts/test-codex-wake.sh`.
+
+Self-contained releases currently remain untrimmed. Strict full-trim analysis is
+clean for Parley's code but Serilog's runtime type loading and object destructuring
+produce `IL2057`/`IL2072`; suppressing those warnings would make the artifact less
+trustworthy. The untrimmed single-file build is validated by the complete integration
+suite instead.
 
 Release versions are intended to come from reachable Git tags rather than a separate
 version file. See [`SPEC.md`](SPEC.md) for protocol internals and the eventual

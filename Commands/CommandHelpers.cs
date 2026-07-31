@@ -4,6 +4,7 @@ using System.Text.Json;
 using ParleyCli.Channels;
 using ParleyCli.Logging;
 using ParleyCli.Models;
+using ParleyCli.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Serilog.Core;
@@ -88,7 +89,7 @@ public static class CommandHelpers
         if (json)
         {
             foreach (var m in messages)
-                Console.WriteLine(JsonSerializer.Serialize(m, JsonOpts));
+                Console.WriteLine(JsonSerializer.Serialize(m, ParleyJsonContext.Default.Message));
             return;
         }
 

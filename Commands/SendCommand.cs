@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
 using ParleyCli.Integrations;
+using ParleyCli.Models;
+using ParleyCli.Serialization;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -159,7 +161,9 @@ public static class SendCommand
             var sent = store.Append(channel, me.Role, me.Sid, text, toRoles, broadcast, expectNew, close);
 
             // The assigned seq goes to stdout so a caller can capture it (e.g. to drop it later).
-            Console.WriteLine(json ? JsonSerializer.Serialize(new { seq = sent.Seq }) : sent.Seq.ToString());
+            Console.WriteLine(json
+                ? JsonSerializer.Serialize(new SequenceOutput(sent.Seq), ParleyJsonContext.Default.SequenceOutput)
+                : sent.Seq.ToString());
 
             var dest = broadcast ? "all" : string.Join(",", toRoles);
             Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Role)}[/] → [blue]{Markup.Escape(dest)}[/]{(close ? " [yellow](closed)[/]" : "")}");

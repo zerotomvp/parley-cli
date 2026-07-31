@@ -150,3 +150,8 @@ without explicit confirmation.
 
 Parley has no settings or secrets layer. Dependency injection carries only the
 logging switch and `ChannelStore`.
+
+All persisted, CLI-output, and Codex JSON shapes use compile-time generated
+`System.Text.Json` metadata. This keeps protocol types explicit and makes Parley's
+own serialization paths safe for single-file and trim analysis without reflection
+fallback.

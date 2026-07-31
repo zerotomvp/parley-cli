@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ParleyCli.Serialization;
 
 namespace ParleyCli.Integrations;
 
@@ -108,7 +109,7 @@ public sealed class CodexWakeClient
             await stderrTask;
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(stdout)) return null;
 
-            var status = JsonSerializer.Deserialize<DaemonVersionStatus>(stdout, JsonOptions);
+            var status = JsonSerializer.Deserialize(stdout, ParleyJsonContext.Default.DaemonVersionStatus);
             return status?.Status == "running" ? status.SocketPath : null;
         }
         finally
@@ -140,8 +141,9 @@ public sealed class CodexWakeClient
                 .LastOrDefault(t => t.Status == "inProgress")?.Id;
 
             var submitId = readId + 1;
-            object request = activeTurnId is not null
-                ? new RpcRequest<TurnSteerParams>
+            if (activeTurnId is not null)
+            {
+                await connection.SendAsync(new RpcRequest<TurnSteerParams>
                 {
                     Method = "turn/steer",
                     Id = submitId,
@@ -151,8 +153,11 @@ public sealed class CodexWakeClient
                         Input = [new TextInput { Text = notification }],
                         ExpectedTurnId = activeTurnId
                     }
-                }
-                : new RpcRequest<TurnStartParams>
+                }, ct);
+            }
+            else
+            {
+                await connection.SendAsync(new RpcRequest<TurnStartParams>
                 {
                     Method = "turn/start",
                     Id = submitId,
@@ -161,9 +166,8 @@ public sealed class CodexWakeClient
                         ThreadId = threadId,
                         Input = [new TextInput { Text = notification }]
                     }
-                };
-
-            await connection.SendAsync(request, ct);
+                }, ct);
+            }
             var submitted = await connection.ReadResponseAsync<RpcResponse>(submitId, ct);
             if (!HasError(submitted, out var submitError)) return new(WakeStatus.Woken);
             if (attempt == 1) return new(WakeStatus.Failed, submitError);
@@ -234,9 +238,11 @@ public sealed class CodexWakeClient
             return new(socket, stream, webSocket);
         }
 
-        public Task SendAsync(object message, CancellationToken ct)
+        public Task SendAsync<T>(T message, CancellationToken ct)
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);
+            var typeInfo = ParleyJsonContext.Default.GetTypeInfo(typeof(T))
+                ?? throw new InvalidOperationException($"No JSON metadata registered for {typeof(T).FullName}.");
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(message, typeInfo);
             return _webSocket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
         }
 
@@ -257,11 +263,15 @@ public sealed class CodexWakeClient
                 } while (!result.EndOfMessage);
 
                 var bytes = buffer.ToArray();
-                var envelope = JsonSerializer.Deserialize<RpcResponse>(bytes, JsonOptions)
+                var envelope = JsonSerializer.Deserialize(bytes, ParleyJsonContext.Default.RpcResponse)
                     ?? throw new JsonException("Codex app-server returned an empty JSON-RPC message.");
                 if (envelope.Id == id)
-                    return JsonSerializer.Deserialize<TResponse>(bytes, JsonOptions)
-                           ?? throw new JsonException("Codex app-server returned an invalid JSON-RPC response.");
+                {
+                    var typeInfo = ParleyJsonContext.Default.GetTypeInfo(typeof(TResponse))
+                        ?? throw new InvalidOperationException($"No JSON metadata registered for {typeof(TResponse).FullName}.");
+                    return (TResponse?)JsonSerializer.Deserialize(bytes, typeInfo)
+                        ?? throw new JsonException("Codex app-server returned an invalid JSON-RPC response.");
+                }
             }
         }
 
