@@ -35,7 +35,9 @@ internal sealed class CliSandbox : IDisposable
         }
         else
         {
-            var configuration = Environment.GetEnvironmentVariable("CONFIGURATION") ?? "Debug";
+            var configuration = Environment.GetEnvironmentVariable("CONFIGURATION")
+                ?? new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+                ?? "Debug";
             var dll = Path.Combine(_root, "bin", configuration, "net10.0", "parley-cli.dll");
             _fileName = DotnetHost();
             _prefixArguments = [dll];

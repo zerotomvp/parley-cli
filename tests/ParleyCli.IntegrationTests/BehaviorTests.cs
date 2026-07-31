@@ -211,7 +211,7 @@ public sealed class BehaviorTests
         var who = await cli.RunAsync("who", "json", "--json");
         who.ShouldSucceed();
         foreach (var line in who.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            Assert.True(JsonDocument.Parse(line).RootElement.TryGetProperty("role", out _));
+            Assert.True(JsonDocument.Parse(line).RootElement.TryGetProperty("role", out _), line);
     }
 
     private static async Task Join(CliSandbox cli, string channel, params (string role, string sid)[] identities)
