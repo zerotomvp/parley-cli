@@ -8,7 +8,7 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "notloaded");
-        await using var server = new FakeCodexServer(cli.Store, ["someone-else"]);
+        await using var server = new FakeCodexServer(["someone-else"]);
         cli.ConfigureRunningCodex(server.SocketPath);
 
         var sent = await SendAuto(cli, "notloaded", "message");
@@ -25,7 +25,7 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "loaded");
-        await using var server = new FakeCodexServer(cli.Store, ["recipient-sid"], activeTurn);
+        await using var server = new FakeCodexServer(["recipient-sid"], activeTurn);
         cli.ConfigureRunningCodex(server.SocketPath);
 
         var sent = await SendAuto(cli, "loaded", "wake me");
@@ -47,7 +47,7 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "retry");
-        await using var server = new FakeCodexServer(cli.Store, ["recipient-sid"], failSubmissions: 1);
+        await using var server = new FakeCodexServer(["recipient-sid"], failSubmissions: 1);
         cli.ConfigureRunningCodex(server.SocketPath);
 
         var sent = await SendAuto(cli, "retry", "retry wake");
@@ -63,7 +63,7 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "wakefail");
-        await using var server = new FakeCodexServer(cli.Store, ["recipient-sid"], failSubmissions: 2);
+        await using var server = new FakeCodexServer(["recipient-sid"], failSubmissions: 2);
         cli.ConfigureRunningCodex(server.SocketPath);
 
         var sent = await SendAuto(cli, "wakefail", "safe message");
@@ -78,7 +78,7 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "malformed");
-        await using var server = new FakeCodexServer(cli.Store, ["recipient-sid"],
+        await using var server = new FakeCodexServer(["recipient-sid"],
             malformedAtMethod: "thread/loaded/list");
         cli.ConfigureRunningCodex(server.SocketPath);
 

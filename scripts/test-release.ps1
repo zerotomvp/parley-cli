@@ -25,7 +25,7 @@ try {
     $sequence = & $parley.FullName send smoke --as sender --sid smoke-sender --to receiver --wake never -m 'release smoke'
     if ($LASTEXITCODE -ne 0 -or $sequence -ne '1') { throw 'send failed.' }
     $received = & $parley.FullName recv smoke --as receiver --sid smoke-receiver --last-seen 0
-    if ($LASTEXITCODE -ne 0 -or $received -notmatch 'release smoke') { throw 'receive failed.' }
+    if ($LASTEXITCODE -ne 0 -or -not ($received -match 'release smoke')) { throw 'receive failed.' }
     Write-Host "release smoke passed: $archivePath"
 }
 finally {

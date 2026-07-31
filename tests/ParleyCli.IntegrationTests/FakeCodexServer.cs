@@ -17,10 +17,10 @@ internal sealed class FakeCodexServer : IAsyncDisposable
     private readonly string? _malformedAtMethod;
     private int _failSubmissions;
 
-    public FakeCodexServer(string root, string[] loadedThreads, string? activeTurnId = null,
+    public FakeCodexServer(string[] loadedThreads, string? activeTurnId = null,
         int failSubmissions = 0, string? malformedAtMethod = null)
     {
-        SocketPath = Path.Combine(root, $"codex-{Guid.NewGuid():N}.sock");
+        SocketPath = Path.Combine(Path.GetTempPath(), $"p-{Guid.NewGuid():N}.sock");
         _loadedThreads = loadedThreads;
         _activeTurnId = activeTurnId;
         _malformedAtMethod = malformedAtMethod;
