@@ -72,7 +72,7 @@ When a listener is needed, `--wait` blocks until a message addressed to me arriv
 |---|---|
 | `parley join <channel> --as <role> [--force]` | Claim `<role>` for this session. Required before send/recv. `--force` takes over a role held by another (restart recovery). |
 | `parley send <channel> (--to <roles> \| --broadcast) [--wait] [--expect-new] [--close] [--wake auto\|never]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. Prints the assigned **seq to stdout**. `--wake auto` (default) best-effort wakes current recipient sids that are loaded Codex app-server threads. `--wait` blocks after sending for a reply addressed to me and prints it. `--expect-new` guards name collisions. `--close` marks the message final. |
-| `parley send <channel> --ack <seq> -m <status>` | Acknowledge a received request with a short status. Derives the original sender as recipient and writes a normal `[ack #seq] …` message. Use when substantive work will take time; do not acknowledge acknowledgements. |
+| `parley send <channel> --as <role> --ack <seq> -m <status> [--wake auto\|never]` | Acknowledge a received request with a short status. Derives the original sender as recipient and writes a normal `[ack #seq] …` message. Automatic wake applies normally. Use when substantive work will take time; do not acknowledge acknowledgements. |
 | `parley recv <channel> --as <role> --last-seen <seq> [--wait]` | Print addressed peer messages after the model's explicit checkpoint. `0` means none seen. `--wait` blocks until one arrives. Replays when the checkpoint is behind the CLI delivery cursor. |
 | `parley who <channel>` | List the roles that have joined, with each one's message count and last activity. |
 | `parley log <channel> [--limit N]` | Print the transcript — the most recent **N** messages (default 10; `--limit 0` for all), each body previewed to its first line (cut at 200 chars) with a clear `… [truncated]` marker. Does not touch any cursor. |
@@ -96,13 +96,13 @@ Agree a channel name (random suffix) and assign each session a distinct role out
 ```bash
 # author (opener)
 parley join review-xyzab --as author
-printf 'Here is the plan…\nThoughts?' | parley send review-xyzab --to reviewer --expect-new
+printf 'Here is the plan…\nThoughts?' | parley send review-xyzab --as author --to reviewer --expect-new
 
 # reviewer
 parley join review-xyzab --as reviewer
 parley recv review-xyzab --as reviewer --last-seen 0                # after automatic wake; add --wait only in fallback mode
 parley send review-xyzab --as reviewer --ack 1 -m 'Running the tests now.'
-printf 'Looks good, but…' | parley send review-xyzab --to author          # reply wakes a loaded Codex peer
+printf 'Looks good, but…' | parley send review-xyzab --as reviewer --to author  # reply wakes a loaded Codex peer
 ```
 
 On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --as <role> --last-seen <seq> --wait`, using the highest sequence actually in context (don't re-send, or you'll duplicate). Free-form: a session may send several times; `recv` drains all addressed peer messages after that explicit checkpoint.
@@ -112,7 +112,7 @@ On a `send --wait` timeout the message is already delivered — continue with `r
 When you're approving or closing and expect no reply, send the final message with **`--close`** and **without `--wait`**:
 
 ```bash
-printf 'Approved, end of cycle — no reply needed.' | parley send review-xyzab --to author --close
+printf 'Approved, end of cycle — no reply needed.' | parley send review-xyzab --as reviewer --to author --close
 ```
 
 The message is tagged `closed:true`; the recipient sees it rendered `[closed]` with a stderr note that no reply is expected. On a closed message, **stop foreground-waiting on that exchange** — don't re-block for a reply that isn't coming. To stay reachable for a new topic, switch to a **background listener** (above) rather than going silent; only drop the listener when your whole task is done.
