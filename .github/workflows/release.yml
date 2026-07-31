@@ -343,7 +343,7 @@ jobs:
           for repo in homebrew-tap scoop-bucket; do
             git -C "$repo" config user.name 'parley-release[bot]'
             git -C "$repo" config user.email 'parley-release[bot]@users.noreply.github.com'
-            if git -C "$repo" diff --quiet; then
+            if [[ -z "$(git -C "$repo" status --porcelain)" ]]; then
               continue
             fi
             git -C "$repo" add .
