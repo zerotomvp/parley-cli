@@ -12,7 +12,8 @@
     <ToolCommandName>parley</ToolCommandName>
     <PackageId>parley-cli</PackageId>
     <Authors>Georgios Diamantopoulos</Authors>
-    <Description>A two-party message channel so a Claude Code and a Codex session can coordinate over a shared transcript</Description>
+    <Description>A durable, role-addressed message channel for coordinating independent agent sessions</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <!-- Version from git commit - must run before GenerateNuspec -->
@@ -44,6 +45,10 @@
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
 </Project>
