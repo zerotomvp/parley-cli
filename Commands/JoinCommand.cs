@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
+using ParleyCli.Integrations;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -29,10 +30,11 @@ public static class JoinCommand
             channelArg, forceOpt
         };
 
-        command.SetAction(Safe((pr, ct) =>
+        command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
+            var codexWake = Cli.Services.GetRequiredService<CodexWakeClient>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
@@ -49,8 +51,18 @@ public static class JoinCommand
             var checkpoint = result == ChannelStore.JoinResult.Reclaimed
                 ? store.GetCursor(channel, me.Sid)
                 : 0;
-            Stderr.MarkupLine($"[grey]Receive from explicit checkpoint: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
-            return Task.FromResult(0);
+            if (await codexWake.IsLoadedAsync(me.Sid, ct))
+            {
+                Stderr.MarkupLine("[green]✓[/] automatic Codex wake-up is available for this thread");
+                Stderr.MarkupLine("[grey]Do not maintain a blocking recv listener. Incoming notifications will tell you to receive.[/]");
+                Stderr.MarkupLine($"[grey]Recovery: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint}[/]");
+            }
+            else
+            {
+                Stderr.MarkupLine("[yellow]Note:[/] automatic wake-up is not currently available; keep this listener running:");
+                Stderr.MarkupLine($"[grey]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
+            }
+            return 0;
         }));
 
         return command;

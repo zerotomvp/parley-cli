@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
+using ParleyCli.Integrations;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -37,6 +38,11 @@ public static class SendCommand
         {
             Description = "Acknowledge one received message by seq; derives its sender as the recipient and requires a short single-line -m status"
         };
+        var wakeOpt = new Option<string>("--wake")
+        {
+            Description = "Recipient wake policy: auto probes a running Codex app-server; never uses durable delivery only",
+            DefaultValueFactory = _ => "auto"
+        };
         var waitOpt = new Option<bool>("--wait", "-w")
         {
             Description = "After sending, block until a message addressed to me arrives and print it"
@@ -58,13 +64,14 @@ public static class SendCommand
 
         var command = new Command("send", "Post a message to a channel (body from stdin, or -m). Requires --to, --broadcast, or --ack <seq>.")
         {
-            channelArg, messageOpt, toOpt, broadcastOpt, ackOpt, waitOpt, timeoutOpt, expectNewOpt, closeOpt, jsonOpt
+            channelArg, messageOpt, toOpt, broadcastOpt, ackOpt, wakeOpt, waitOpt, timeoutOpt, expectNewOpt, closeOpt, jsonOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
+            var codexWake = Cli.Services.GetRequiredService<CodexWakeClient>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
@@ -74,6 +81,12 @@ public static class SendCommand
             var close = pr.GetValue(closeOpt);
             var json = pr.GetValue(jsonOpt);
             var ackSeq = pr.GetValue(ackOpt);
+            var wake = pr.GetValue(wakeOpt)!.ToLowerInvariant();
+            if (wake is not ("auto" or "never"))
+            {
+                Stderr.MarkupLine("[red]Error:[/] --wake must be auto or never.");
+                return 1;
+            }
 
             // Must have joined as this role from this session before sending.
             store.VerifyMembership(channel, me.Role, me.Sid);
@@ -151,6 +164,28 @@ public static class SendCommand
             var dest = broadcast ? "all" : string.Join(",", toRoles);
             Stderr.MarkupLine($"[green]✓[/] sent [blue]#{sent.Seq}[/] to [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Role)}[/] → [blue]{Markup.Escape(dest)}[/]{(close ? " [yellow](closed)[/]" : "")}");
 
+            if (wake == "auto")
+            {
+                var recipientRoles = broadcast
+                    ? store.Participants(channel).Select(p => p.Role).Where(r => r != me.Role)
+                    : toRoles.AsEnumerable();
+                foreach (var recipientRole in recipientRoles.Distinct(StringComparer.Ordinal))
+                {
+                    var recipientSid = store.OwnerOf(channel, recipientRole);
+                    if (recipientSid is null) continue;
+
+                    var notification =
+                        $"[Parley notification] Message #{sent.Seq} is waiting on channel {channel} for role {recipientRole}. " +
+                        $"Run: parley recv {channel} --as {recipientRole} --last-seen <highest Parley sequence actually present in your context>. " +
+                        "Use 0 if none. Do not count this notification as seeing the message itself.";
+                    var result = await codexWake.WakeAsync(recipientSid, notification, ct);
+                    if (result.Status == CodexWakeClient.WakeStatus.Woken)
+                        Stderr.MarkupLine($"[green]✓[/] woke [blue]{Markup.Escape(recipientRole)}[/] through Codex app-server");
+                    else if (result.Status == CodexWakeClient.WakeStatus.Failed)
+                        Stderr.MarkupLine($"[yellow]Note:[/] message remains delivered, but waking [blue]{Markup.Escape(recipientRole)}[/] failed: {Markup.Escape(result.Error ?? "unknown error")}");
+                }
+            }
+
             if (close && wait)
                 Stderr.MarkupLine("[grey]Note: --close means no reply is expected; --wait would block with nothing to receive.[/]");
 
@@ -164,7 +199,7 @@ public static class SendCommand
             // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
             if (!satisfied)
             {
-                Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {sent.Seq} --wait[/] to keep waiting.");
+                Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen <SEQ> --wait[/] with the highest Parley sequence actually in your context.");
                 return 2; // timeout: no relevant reply yet
             }
 
