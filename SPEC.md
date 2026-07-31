@@ -31,8 +31,9 @@ Every `send` must declare delivery, exactly one of:
 
 - `--to <role>[,<role>…]` — deliver to those roles.
 - `--broadcast` — deliver to everyone.
+- `--ack <seq> -m <status>` — acknowledge a received peer message and derive its sender as the recipient. This is an ordinary channel message rendered `[ack #seq] <status>`, not receipt state. The status must be one non-empty line of at most 200 characters; stdin and other delivery/wait/close flags are rejected.
 
-Neither → error; both → error. `recv` and `--wait` only surface messages addressed to me (`--to` me, or broadcast) from another session — a session never wakes on traffic meant for someone else. Addressing an unjoined role is allowed (it may join later) but prints a best-effort warning to catch typos.
+No delivery mode or conflicting modes → error. `recv` and `--wait` only surface messages addressed to me (`--to` me, or broadcast) from another session — a session never wakes on traffic meant for someone else. Addressing an unjoined role is allowed (it may join later) but prints a best-effort warning to catch typos.
 
 ## Avoiding channel-name collisions
 
@@ -64,6 +65,7 @@ A member should **always be listening** so it never misses mail addressed to it.
 |---|---|
 | `parley join <channel> --as <role> [--force]` | Claim `<role>` for this session. Required before send/recv. `--force` takes over a role held by another (restart recovery). |
 | `parley send <channel> (--to <roles> \| --broadcast) [--wait] [--expect-new] [--close]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. Prints the assigned **seq to stdout**. `--wait` blocks after sending for a reply addressed to me and prints it. `--expect-new` guards name collisions. `--close` marks the message final (no reply expected — send without `--wait`). |
+| `parley send <channel> --ack <seq> -m <status>` | Acknowledge a received request with a short status. Derives the original sender as recipient and writes a normal `[ack #seq] …` message. Use when substantive work will take time; do not acknowledge acknowledgements. |
 | `parley recv <channel> --as <role> --last-seen <seq> [--wait]` | Print addressed peer messages after the model's explicit checkpoint. `0` means none seen. `--wait` blocks until one arrives. Replays when the checkpoint is behind the CLI delivery cursor. |
 | `parley who <channel>` | List the roles that have joined, with each one's message count and last activity. |
 | `parley log <channel> [--limit N]` | Print the transcript — the most recent **N** messages (default 10; `--limit 0` for all), each body previewed to its first line (cut at 200 chars) with a clear `… [truncated]` marker. Does not touch any cursor. |
@@ -92,6 +94,7 @@ printf 'Here is the plan…\nThoughts?' | parley send review-xyzab --to reviewer
 # reviewer
 parley join review-xyzab --as reviewer
 parley recv review-xyzab --as reviewer --last-seen 0 --wait         # catches the opener
+parley send review-xyzab --as reviewer --ack 1 -m 'Running the tests now.'
 printf 'Looks good, but…' | parley send review-xyzab --to author --wait   # replies, blocks for next
 ```
 
@@ -122,6 +125,7 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 - Open the conversation (first message):     printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait --expect-new
 - Say something and wait for a reply:        printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait
 - Message everyone:                          printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --broadcast
+- Acknowledge work that will take time:       parley send <CHANNEL-xxxxx> --as <ROLE> --ack <REQUEST-SEQ> -m 'What I am doing now.'
 - Wait for a reply (blocks this turn):       parley recv <CHANNEL-xxxxx> --as <ROLE> --last-seen <SEQ> --wait
 - Stay reachable when NOT expecting a reply: run that same recv --wait as a BACKGROUND task (Claude Code: run_in_background; Codex: it just blocks)
 - Retract your last message:                 parley drop <CHANNEL-xxxxx> --as <ROLE> --yes
@@ -131,6 +135,7 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 
 Rules:
 - Every send needs a destination: --to <roles> or --broadcast (never both, never neither).
+- If substantive work will take time, send `--ack <REQUEST-SEQ> -m '<short current action>'` immediately. Skip the acknowledgement when replying immediately, never acknowledge an acknowledgement, and still send the substantive result when finished.
 - Always pass `--last-seen <SEQ>` with the highest sequence actually present in your context (`0` if none). Expecting a reply now → foreground `parley recv ... --as <ROLE> --last-seen <SEQ> --wait` (blocks this turn; returns when the reply lands). NOT expecting one (idle, or after a [closed]) → run the same command as a BACKGROUND task so you stay reachable without blocking: Claude Code use run_in_background (a long foreground wait auto-backgrounds anyway and is not killed); Codex a plain --wait just blocks (no timeout). You normally don't need --timeout — pass it only to make the wait return control after N seconds (exit 2 = run it again).
 - Don't re-send after a send --wait timeout — it already went through.
 - Put your whole thought in ONE message (single-shot); use the stdin pipe for multi-line.

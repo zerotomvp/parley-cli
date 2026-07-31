@@ -33,6 +33,10 @@ public static class SendCommand
         {
             Description = "Send to every role on the channel. Mutually exclusive with --to."
         };
+        var ackOpt = new Option<int?>("--ack")
+        {
+            Description = "Acknowledge one received message by seq; derives its sender as the recipient and requires a short single-line -m status"
+        };
         var waitOpt = new Option<bool>("--wait", "-w")
         {
             Description = "After sending, block until a message addressed to me arrives and print it"
@@ -52,9 +56,9 @@ public static class SendCommand
         };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit the seq (and any --wait reply) as JSON/JSONL" };
 
-        var command = new Command("send", "Post a message to a channel (body from stdin, or -m). Requires --to or --broadcast.")
+        var command = new Command("send", "Post a message to a channel (body from stdin, or -m). Requires --to, --broadcast, or --ack <seq>.")
         {
-            channelArg, messageOpt, toOpt, broadcastOpt, waitOpt, timeoutOpt, expectNewOpt, closeOpt, jsonOpt
+            channelArg, messageOpt, toOpt, broadcastOpt, ackOpt, waitOpt, timeoutOpt, expectNewOpt, closeOpt, jsonOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
@@ -69,29 +73,68 @@ public static class SendCommand
             var expectNew = pr.GetValue(expectNewOpt);
             var close = pr.GetValue(closeOpt);
             var json = pr.GetValue(jsonOpt);
+            var ackSeq = pr.GetValue(ackOpt);
 
-            // Delivery: exactly one of --to / --broadcast.
+            // Must have joined as this role from this session before sending.
+            store.VerifyMembership(channel, me.Role, me.Sid);
+
             var broadcast = pr.GetValue(broadcastOpt);
             var toRaw = pr.GetValue(toOpt);
             var toRoles = string.IsNullOrWhiteSpace(toRaw)
                 ? Array.Empty<string>()
                 : toRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                        .Select(r => ChannelStore.Validate("recipient role", r)).ToArray();
-            if (toRoles.Length > 0 == broadcast)
+            var inline = pr.GetValue(messageOpt);
+
+            if (ackSeq is not null)
             {
-                Stderr.MarkupLine("[red]Error:[/] Specify recipients with [blue]--to <roles>[/] or [blue]--broadcast[/] (exactly one).");
+                if (ackSeq <= 0)
+                {
+                    Stderr.MarkupLine("[red]Error:[/] --ack must reference a positive transcript sequence.");
+                    return 1;
+                }
+                if (toRoles.Length > 0 || broadcast || wait || expectNew || close)
+                {
+                    Stderr.MarkupLine("[red]Error:[/] --ack derives its recipient and cannot be combined with --to, --broadcast, --wait, --expect-new, or --close.");
+                    return 1;
+                }
+                if (inline is null)
+                {
+                    Stderr.MarkupLine("[red]Error:[/] --ack requires a short single-line status via -m; stdin is not accepted.");
+                    return 1;
+                }
+                if (string.IsNullOrWhiteSpace(inline) || inline.Contains('\n') || inline.Contains('\r') || inline.Length > 200)
+                {
+                    Stderr.MarkupLine("[red]Error:[/] acknowledgement status must be one non-empty line of at most 200 characters.");
+                    return 1;
+                }
+
+                var acknowledged = store.ReadAll(channel).SingleOrDefault(m => m.Seq == ackSeq.Value);
+                if (acknowledged is null)
+                {
+                    Stderr.MarkupLine($"[red]Error:[/] message #{ackSeq} does not exist on {Markup.Escape(channel)}.");
+                    return 1;
+                }
+                if (acknowledged.Sid == me.Sid || !acknowledged.IsFor(me.Role))
+                {
+                    Stderr.MarkupLine($"[red]Error:[/] message #{ackSeq} is not a peer message addressed to role {Markup.Escape(me.Role)}.");
+                    return 1;
+                }
+
+                toRoles = [acknowledged.From];
+                inline = $"[ack #{ackSeq}] {inline}";
+            }
+            else if (toRoles.Length > 0 == broadcast)
+            {
+                Stderr.MarkupLine("[red]Error:[/] Specify recipients with [blue]--to <roles>[/] or [blue]--broadcast[/] (exactly one), or use --ack <seq>.");
                 return 1;
             }
-
-            // Must have joined as this role from this session before sending.
-            store.VerifyMembership(channel, me.Role, me.Sid);
 
             // Best-effort: warn about addressed roles nobody has joined yet (likely a typo).
             foreach (var r in toRoles)
                 if (store.OwnerOf(channel, r) is null)
                     Stderr.MarkupLine($"[yellow]Note:[/] role [blue]{Markup.Escape(r)}[/] hasn't joined [blue]{Markup.Escape(channel)}[/] yet — it won't see this until it does.");
 
-            var inline = pr.GetValue(messageOpt);
             var text = inline ?? (Console.IsInputRedirected ? await Console.In.ReadToEndAsync(ct) : "");
             text = text.TrimEnd('\r', '\n');
             if (string.IsNullOrWhiteSpace(text))
