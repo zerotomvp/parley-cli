@@ -32,7 +32,9 @@ cd parley-cli
 
 The installer packs the current checkout and installs it as the global .NET tool
 `parley-cli`. It warns before installing a dirty worktree. To build without changing
-your global tools, run `dotnet build -c Release` instead.
+your global tools, run `dotnet build -c Release` instead. For an isolated install,
+use `./install.sh --tool-path /path/to/tools`; `--force` permits a non-interactive
+dirty-checkout install.
 
 ### v1.0 distribution channels
 
@@ -328,9 +330,23 @@ produce `IL2057`/`IL2072`; suppressing those warnings would make the artifact le
 trustworthy. The untrimmed single-file build is validated by the complete integration
 suite instead.
 
-Release versions are intended to come from reachable Git tags rather than a separate
-version file. See [`SPEC.md`](SPEC.md) for protocol internals and the eventual
-`CHANGELOG.md` for release history.
+## Versioning and releases
+
+Versions come from the latest reachable `v`-prefixed semantic Git tag through
+MinVer; there is no independent version file:
+
+- On `v1.0.0`, the package, assembly informational version, and `parley --version`
+  report `1.0.0`.
+- Commits after that tag use the next patch as an unreleasable development version,
+  such as `1.0.1-dev.0.3` for three commits after the tag.
+- Before any reachable version tag, builds use `0.0.0-dev.0.<height>`.
+- Tracked working-tree changes append `-dirty` to an exact release version or
+  `.dirty` to a development prerelease. Untracked files do not alter build identity.
+
+Release tags must point at clean, fully verified commits. CI must fetch full history
+and tags so the same source version reaches NuGet metadata, `--version`, archive
+names, and distribution manifests. See [`SPEC.md`](SPEC.md) for protocol internals
+and the eventual `CHANGELOG.md` for release history.
 
 Bug reports and feature requests belong in [GitHub Issues](https://github.com/zerotomvp/parley-cli/issues).
 Contributions are welcome through [pull requests](https://github.com/zerotomvp/parley-cli/pulls);

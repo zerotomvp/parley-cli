@@ -14,23 +14,25 @@
     <Authors>Georgios Diamantopoulos</Authors>
     <Description>A durable, role-addressed message channel for coordinating independent agent sessions</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerDefaultPreReleaseIdentifiers>dev.0</MinVerDefaultPreReleaseIdentifiers>
   </PropertyGroup>
 
-  <!-- Version from git commit - must run before GenerateNuspec -->
-  <Target Name="SetVersionFromGit" BeforeTargets="GenerateNuspec;GetPackageVersion;GetAssemblyVersion">
-    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommit" />
+  <!-- MinVer supplies the latest reachable v-prefixed SemVer tag. Only tracked source
+       modifications mark a build dirty, so local handover files do not taint releases. -->
+  <Target Name="MarkDirtyVersion" AfterTargets="MinVer">
+    <Exec Command="git diff-index --quiet HEAD -- ." IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="GitDirtyExitCode" />
     </Exec>
-    <Exec Command="git status --porcelain -- ." ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitDirty" />
-    </Exec>
-    <PropertyGroup Condition="'$(GitDirty)' == ''">
-      <Version>1.0.0-v$(GitCommit)</Version>
-      <PackageVersion>1.0.0-v$(GitCommit)</PackageVersion>
+    <PropertyGroup Condition="'$(GitDirtyExitCode)' == '1' and '$(MinVerPreRelease)' == ''">
+      <Version>$(Version)-dirty</Version>
+      <PackageVersion>$(PackageVersion)-dirty</PackageVersion>
+      <InformationalVersion>$(InformationalVersion)-dirty</InformationalVersion>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(GitDirty)' != ''">
-      <Version>1.0.0-v$(GitCommit)-dirty</Version>
-      <PackageVersion>1.0.0-v$(GitCommit)-dirty</PackageVersion>
+    <PropertyGroup Condition="'$(GitDirtyExitCode)' == '1' and '$(MinVerPreRelease)' != ''">
+      <Version>$(Version).dirty</Version>
+      <PackageVersion>$(PackageVersion).dirty</PackageVersion>
+      <InformationalVersion>$(InformationalVersion).dirty</InformationalVersion>
     </PropertyGroup>
   </Target>
 
@@ -39,6 +41,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2" />
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.0" />
