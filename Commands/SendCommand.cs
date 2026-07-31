@@ -121,7 +121,7 @@ public static class SendCommand
             // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
             if (!satisfied)
             {
-                Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --wait[/] to keep waiting.");
+                Stderr.MarkupLine($"[yellow]No reply within {timeout}s.[/] Message is delivered — run [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {sent.Seq} --wait[/] to keep waiting.");
                 return 2; // timeout: no relevant reply yet
             }
 

@@ -8,7 +8,7 @@ A role-addressed message channel so any number of coordinating agent sessions (C
 - **Store:** `~/.parley/channels/` (override with the `PARLEY_HOME` env var — used by tests).
   - `<channel>.jsonl` — append-only transcript, one JSON message per line (`{seq, ts, from, sid, text, to|broadcast, closed?}`). `text` may contain newlines (JSON-escaped).
   - `<channel>.roster.jsonl` — append-only role-claim log (`{ts, role, sid, forced?}`), replayed to resolve who owns each role (latest claim wins).
-  - `<channel>.<sid>.cursor` — each **session's** last-read seq, keyed by session id so any number of sessions each track their own position.
+  - `<channel>.<sid>.cursor` — the highest transcript position the CLI emitted to this session. This is diagnostic delivery state, not proof that the harness put the output in model context; `recv --last-seen` supplies the authoritative model checkpoint.
   - No lock files: appends are lock-free (see Notes).
 - **Identity — explicit role + auto-detected sid.** Each session has two identifiers:
   - **role** (`from`) — the addressable name it claims via `join` (e.g. `reviewer`, `author`). **Required on `join`/`send`/`recv` via `--as <role>`; there is no auto-detected default.** Distinct sessions must pick distinct roles — a shared auto-label ("claude"/"codex") collides the moment more than two sessions join, which is exactly what addressing needs to avoid.
@@ -23,7 +23,7 @@ A session must **`join` a role before it can send or receive.** `join` claims th
 - If **another sid** holds it → rejected. This is the collision guard: two sessions can't both act as `reviewer`.
 - `join --force` takes a held role over — for a session that restarted under a new sid and needs its role back. On a forced reclaim the new sid's cursor is initialized to the **current end of the transcript**, so a later `recv` surfaces only messages that arrive *after* the reclaim — a restarted session resumes forward instead of re-draining the whole backlog. (Cursors are keyed by sid, so a new sid otherwise reads from seq 0; the reclaim only sets the cursor when this sid has none yet, never moving an already-advanced one. A plain join is unchanged: a fresh participant still catches up from the start.)
 
-`send`/`recv` then verify the `--as <role>` resolves to *my* sid; a session that ignored a join rejection still can't send as that role. `who <channel>` lists the claimed roles.
+`send`/`recv` then verify the `--as <role>` resolves to *my* sid; a session that ignored a join rejection still can't send as that role. `who <channel>` lists the claimed roles. Every `recv` requires `--last-seen <seq>`: use the highest message sequence actually present in model context, or `0` before seeing any message. This explicit boundary can replay output that a backgrounded harness failed to deliver even though the CLI cursor advanced.
 
 ## Addressing (explicit — no implicit broadcast)
 
@@ -43,7 +43,7 @@ The channel namespace is flat and unguarded, so two unrelated groups could both 
 
 ## Listening for messages (always on; foreground vs background)
 
-A member should **always be listening** so it never misses mail addressed to it. `--wait` blocks until a message addressed to me arrives, so one tool call returns exactly when it lands — no busy-polling. **By default the wait is indefinite** (returns only on a relevant message or Ctrl-C); `--timeout <sec>` bounds it, exiting **2** on timeout so you run again. Which mode to use depends on whether you're mid-exchange:
+A member should **always be listening** so it never misses mail addressed to it. `--wait` blocks until a message addressed to me arrives, so one tool call returns exactly when it lands — no busy-polling. Every call includes `--last-seen <seq>`, the highest sequence actually present in the model's context (`0` initially). **By default the wait is indefinite** (returns only on a relevant message or Ctrl-C); `--timeout <sec>` bounds it, exiting **2** on timeout so you run again. Which mode to use depends on whether you're mid-exchange:
 
 **Expecting a reply now → foreground `--wait`.** You just sent and are blocking this turn for the answer; leave it unbounded and let it return when the reply lands.
 
@@ -55,7 +55,7 @@ A member should **always be listening** so it never misses mail addressed to it.
 
 **Not actively expecting a reply (idle, or after a `--close`) → background listener.** Stay reachable for the *next* message without tying up a turn blocking on it:
 
-- **Claude Code** — run an unbounded `parley recv <channel> --as <role> --wait` as a **background task** (`run_in_background`). A background task isn't bound by the 10-min foreground ceiling, so it blocks indefinitely and wakes you when a message lands — this is how you remain reachable after you've stopped actively volleying.
+- **Claude Code** — run an unbounded `parley recv <channel> --as <role> --last-seen <seq> --wait` as a **background task** (`run_in_background`). A background task isn't bound by the 10-min foreground ceiling, so it blocks indefinitely and wakes you when a message lands — this is how you remain reachable after you've stopped actively volleying.
 - **Codex** — no 10-min cap, so a plain unbounded foreground `--wait` already serves as the standing listener.
 
 ## Commands
@@ -64,7 +64,7 @@ A member should **always be listening** so it never misses mail addressed to it.
 |---|---|
 | `parley join <channel> --as <role> [--force]` | Claim `<role>` for this session. Required before send/recv. `--force` takes over a role held by another (restart recovery). |
 | `parley send <channel> (--to <roles> \| --broadcast) [--wait] [--expect-new] [--close]` | Append a message. Body from stdin (multi-line friendly) or `-m <text>`. Prints the assigned **seq to stdout**. `--wait` blocks after sending for a reply addressed to me and prints it. `--expect-new` guards name collisions. `--close` marks the message final (no reply expected — send without `--wait`). |
-| `parley recv <channel> --as <role> [--wait]` | Print unread messages addressed to me and advance my cursor. `--wait` blocks until one arrives. |
+| `parley recv <channel> --as <role> --last-seen <seq> [--wait]` | Print addressed peer messages after the model's explicit checkpoint. `0` means none seen. `--wait` blocks until one arrives. Replays when the checkpoint is behind the CLI delivery cursor. |
 | `parley who <channel>` | List the roles that have joined, with each one's message count and last activity. |
 | `parley log <channel> [--limit N]` | Print the transcript — the most recent **N** messages (default 10; `--limit 0` for all), each body previewed to its first line (cut at 200 chars) with a clear `… [truncated]` marker. Does not touch any cursor. |
 | `parley show <channel> <seq>` | Print one message in full (untruncated) by its `#seq` — the companion to `log`'s preview. Does not touch any cursor. |
@@ -82,7 +82,7 @@ A member should **always be listening** so it never misses mail addressed to it.
 
 ## Protocol
 
-Agree a channel name (random suffix) and assign each session a distinct role out-of-band. Each session **joins first**, then the opener sends with `--expect-new`; others catch up with `recv --wait`. Each turn is a single call:
+Agree a channel name (random suffix) and assign each session a distinct role out-of-band. Each session **joins first**, then the opener sends with `--expect-new`; others catch up with `recv --last-seen 0 --wait`. Each turn is a single call:
 
 ```bash
 # author (opener)
@@ -91,11 +91,11 @@ printf 'Here is the plan…\nThoughts?' | parley send review-xyzab --to reviewer
 
 # reviewer
 parley join review-xyzab --as reviewer
-parley recv review-xyzab --as reviewer --wait                       # catches the opener
+parley recv review-xyzab --as reviewer --last-seen 0 --wait         # catches the opener
 printf 'Looks good, but…' | parley send review-xyzab --to author --wait   # replies, blocks for next
 ```
 
-On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --as <role> --wait` (don't re-send, or you'll duplicate). Free-form: a session may send several times; `recv` drains all unread addressed to me.
+On a `send --wait` timeout the message is already delivered — continue with `recv <channel> --as <role> --last-seen <seq> --wait`, using the highest sequence actually in context (don't re-send, or you'll duplicate). Free-form: a session may send several times; `recv` drains all addressed peer messages after that explicit checkpoint.
 
 ### Ending an exchange
 
@@ -122,7 +122,7 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 - Open the conversation (first message):     printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait --expect-new
 - Say something and wait for a reply:        printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --to <THEIR-ROLE> --wait
 - Message everyone:                          printf 'your message' | parley send <CHANNEL-xxxxx> --as <ROLE> --broadcast
-- Wait for a reply (blocks this turn):       parley recv <CHANNEL-xxxxx> --as <ROLE> --wait
+- Wait for a reply (blocks this turn):       parley recv <CHANNEL-xxxxx> --as <ROLE> --last-seen <SEQ> --wait
 - Stay reachable when NOT expecting a reply: run that same recv --wait as a BACKGROUND task (Claude Code: run_in_background; Codex: it just blocks)
 - Retract your last message:                 parley drop <CHANNEL-xxxxx> --as <ROLE> --yes
 - Re-read the exchange (recent, previewed):   parley log <CHANNEL-xxxxx>   (add --limit 0 for all)
@@ -131,11 +131,11 @@ Your role: <ROLE>          (pass as --as <ROLE> on every call; your session id i
 
 Rules:
 - Every send needs a destination: --to <roles> or --broadcast (never both, never neither).
-- Always be listening. Expecting a reply now → foreground `parley recv ... --as <ROLE> --wait` (blocks this turn; returns when the reply lands). NOT expecting one (idle, or after a [closed]) → run the same command as a BACKGROUND task so you stay reachable without blocking: Claude Code use run_in_background (a long foreground wait auto-backgrounds anyway and is not killed); Codex a plain --wait just blocks (no timeout). You normally don't need --timeout — pass it only to make the wait return control after N seconds (exit 2 = run it again).
+- Always pass `--last-seen <SEQ>` with the highest sequence actually present in your context (`0` if none). Expecting a reply now → foreground `parley recv ... --as <ROLE> --last-seen <SEQ> --wait` (blocks this turn; returns when the reply lands). NOT expecting one (idle, or after a [closed]) → run the same command as a BACKGROUND task so you stay reachable without blocking: Claude Code use run_in_background (a long foreground wait auto-backgrounds anyway and is not killed); Codex a plain --wait just blocks (no timeout). You normally don't need --timeout — pass it only to make the wait return control after N seconds (exit 2 = run it again).
 - Don't re-send after a send --wait timeout — it already went through.
 - Put your whole thought in ONE message (single-shot); use the stdin pipe for multi-line.
 - On a [closed] message, stop replying to that exchange — but keep a background listener up for anything new; only stop when your task is done.
-- Everyone joins first; one opener uses --expect-new, the rest start with `parley recv ... --wait`.
+- Everyone joins first; one opener uses --expect-new, the rest start with `parley recv ... --last-seen 0 --wait` (or the checkpoint printed by a forced reclaim).
 ```
 
 ## Notes

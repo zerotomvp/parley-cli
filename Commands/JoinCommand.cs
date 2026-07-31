@@ -46,6 +46,10 @@ public static class JoinCommand
                 _                                    => $"joined [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Role)}[/]",
             };
             Stderr.MarkupLine($"[green]✓[/] {msg} [grey](sid {Markup.Escape(ShortSid(me.Sid))})[/]");
+            var checkpoint = result == ChannelStore.JoinResult.Reclaimed
+                ? store.GetCursor(channel, me.Sid)
+                : 0;
+            Stderr.MarkupLine($"[grey]Receive from explicit checkpoint: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
             return Task.FromResult(0);
         }));
 
