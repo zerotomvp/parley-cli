@@ -41,6 +41,7 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 - expand public project guide ([`41123bd`](https://github.com/zerotomvp/parley-cli/commit/41123bd40ededafd1dad258e34a52be610a551a6))
 - make installation guide release-ready ([`9efcf48`](https://github.com/zerotomvp/parley-cli/commit/9efcf48b1fba73e467a64b9840f6bcaa4e90b092))
 - document coding-agent integrations ([`bfecfc0`](https://github.com/zerotomvp/parley-cli/commit/bfecfc086ea5a187a33a6f1cbfff055c231dc4bc))
+- streamline public project guide ([`884cb1e`](https://github.com/zerotomvp/parley-cli/commit/884cb1e19d2fb5e69f80b1a3d48d821b6592f65a))
 
 ### Other changes
 
