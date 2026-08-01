@@ -35,9 +35,22 @@ directly from source. See [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
 ## Installation
 
-### From source (available now)
+### Official packages
 
-Building requires the .NET 10 SDK:
+| Channel | Installation | Runtime required |
+|---|---|---|
+| [GitHub Releases](https://github.com/zerotomvp/parley-cli/releases) | Download the archive for your OS and architecture, then place `parley` (or `parley.exe`) on `PATH` | No |
+| [NuGet](https://www.nuget.org/packages/parley-cli) | `dotnet tool install --global parley-cli` | .NET 10 runtime |
+| Homebrew | `brew install zerotomvp/tap/parley` | No |
+| Scoop | `scoop bucket add zerotomvp https://github.com/zerotomvp/scoop-bucket` then `scoop install parley` | No |
+
+Release archives include SHA-256 checksums and build-provenance attestations. Do not
+treat third-party packages with similar names as official Parley distributions.
+
+### Build from source
+
+Use a source build when contributing or testing unreleased changes. Building
+requires the .NET 10 SDK:
 
 ```bash
 git clone https://github.com/zerotomvp/parley-cli.git
@@ -50,18 +63,6 @@ The installer packs the current checkout and installs it as the global .NET tool
 your global tools, run `dotnet build -c Release` instead. For an isolated install,
 use `./install.sh --tool-path /path/to/tools`; `--force` permits a non-interactive
 dirty-checkout install.
-
-### Release packages
-
-| Channel | Installation | Runtime required |
-|---|---|---|
-| [GitHub Releases](https://github.com/zerotomvp/parley-cli/releases) | Download the archive for your OS and architecture, then place `parley` (or `parley.exe`) on `PATH` | No |
-| [NuGet](https://www.nuget.org/packages/parley-cli) | `dotnet tool install --global parley-cli` | .NET 10 runtime |
-| Homebrew | `brew install zerotomvp/tap/parley` | No |
-| Scoop | `scoop bucket add zerotomvp https://github.com/zerotomvp/scoop-bucket` then `scoop install parley` | No |
-
-Release archives include SHA-256 checksums and build-provenance attestations. Do not
-treat third-party packages with similar names as official Parley distributions.
 
 ## Quick start
 
