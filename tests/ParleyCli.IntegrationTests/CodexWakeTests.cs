@@ -35,7 +35,7 @@ public sealed class CodexWakeTests
         Assert.Null(server.LastError);
         await server.WaitForSubmissionsAsync(1);
         Assert.Equal(expectedMethod, server.SubmittedMethods.Single());
-        Assert.Contains("Parley notification", server.SubmittedPayloads.Single());
+        Assert.Contains("[Parley] Message #", server.SubmittedPayloads.Single());
         if (activeTurn is not null)
             Assert.Contains($"\"expectedTurnId\":\"{activeTurn}\"", server.SubmittedPayloads.Single());
         Assert.Contains("woke reviewer", sent.Stderr);

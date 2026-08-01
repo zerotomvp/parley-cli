@@ -179,9 +179,9 @@ public static class SendCommand
                     if (recipientSid is null) continue;
 
                     var notification =
-                        $"[Parley notification] Message #{sent.Seq} is waiting on channel {channel} for role {recipientRole}. " +
-                        $"Run: parley recv {channel} --as {recipientRole} --last-seen <highest Parley sequence actually present in your context>. " +
-                        "Use 0 if none. Do not count this notification as seeing the message itself.";
+                        $"[Parley] Message #{sent.Seq} is waiting on channel {channel} for role {recipientRole}. " +
+                        $"Run: parley recv {channel} --as {recipientRole} --last-seen <highest Parley seq in your context, or 0>. " +
+                        $"This notice does not count as seeing #{sent.Seq}.";
                     var result = await codexWake.WakeAsync(recipientSid, notification, ct);
                     if (result.Status == CodexWakeClient.WakeStatus.Woken)
                         Stderr.MarkupLine($"[green]✓[/] woke [blue]{Markup.Escape(recipientRole)}[/] through Codex app-server");
