@@ -12,6 +12,7 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 ### Bug fixes
 
 - publish new distribution manifests ([`ad7a8e6`](https://github.com/zerotomvp/parley-cli/commit/ad7a8e6af7bd0db6be4aeebc7ba9f042a9828405))
+- make concurrent appends atomic ([`90ce955`](https://github.com/zerotomvp/parley-cli/commit/90ce955b7be6c2ef411c0c7c062207bb14315044))
 
 ### Documentation
 
