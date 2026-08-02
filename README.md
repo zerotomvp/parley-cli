@@ -209,51 +209,19 @@ For daily use, supervise the first command as a user service and reserve a short
 `cx` command for remote-backed interactive sessions. Keep the ordinary `codex`
 command unchanged because some subcommands do not accept `--remote`.
 
-The following Home Manager recipe provides a systemd user service on Linux, a
-KeepAlive launchd agent on macOS, and the `cx` alias on both:
+Add this function to `~/.bashrc`:
 
-```nix
-{ config, lib, pkgs, ... }:
-
-let
-  codexBin = "${config.home.homeDirectory}/.npm-global/bin/codex";
-in {
-  home.file.".local/bin/codex-remote" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      set -euo pipefail
-      exec ${codexBin} --remote unix:// "$@"
-    '';
-  };
-  home.shellAliases.cx = "${config.home.homeDirectory}/.local/bin/codex-remote";
-
-  systemd.user.services.codex-app-server = lib.mkIf pkgs.stdenv.isLinux {
-    Unit.Description = "Persistent local Codex app-server";
-    Service = {
-      ExecStart = "${codexBin} app-server --listen unix://";
-      Restart = "always";
-      RestartSec = "5s";
-    };
-    Install.WantedBy = [ "default.target" ];
-  };
-
-  launchd.agents.codex-app-server = lib.mkIf pkgs.stdenv.isDarwin {
-    enable = true;
-    config = {
-      ProgramArguments = [ codexBin "app-server" "--listen" "unix://" ];
-      RunAtLoad = true;
-      KeepAlive = true;
-      ProcessType = "Interactive";
-    };
-  };
+```bash
+cx() {
+  codex --remote unix:// "$@"
 }
 ```
 
-Adjust `codexBin` to the absolute path returned by `command -v codex`. After applying
-the configuration, start the Linux unit with
-`systemctl --user enable --now codex-app-server`; launchd loads the macOS agent when
-Home Manager activates it. Then launch participating sessions with `cx`.
+Reload the shell with `source ~/.bashrc`, arrange for
+`codex app-server --listen unix://` to run continuously under your platform's user
+service manager, and launch participating sessions with `cx`. Nix/Home Manager users
+can express the same setup as a user systemd service on Linux or launchd agent on
+macOS plus `home.shellAliases.cx`.
 
 Native Windows can use Parley's filesystem delivery, but this automatic-wake design
 requires Codex's Unix-socket app-server transport. Run Codex and Parley together in
