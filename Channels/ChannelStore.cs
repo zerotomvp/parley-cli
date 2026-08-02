@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Win32.SafeHandles;
 using ParleyCli.Models;
 using ParleyCli.Serialization;
 
@@ -401,6 +402,21 @@ public class ChannelStore
     [DllImport("libc", SetLastError = true, EntryPoint = "close")]
     private static extern int NativeClose(int fd);
 
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern SafeFileHandle CreateFile(
+        string fileName, uint desiredAccess, uint shareMode, nint securityAttributes,
+        uint creationDisposition, uint flagsAndAttributes, nint templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WriteFile(
+        SafeFileHandle file, byte[] buffer, uint bytesToWrite, out uint bytesWritten,
+        nint overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FlushFileBuffers(SafeFileHandle file);
+
     /// <summary>
     /// Appends <paramref name="data"/> as a single atomic write with no lock. On Unix this uses
     /// POSIX <c>O_APPEND</c>: the kernel serializes each <c>write()</c> at the true end of file, so
@@ -410,14 +426,31 @@ public class ChannelStore
     /// </summary>
     private static void AtomicAppend(string path, byte[] data)
     {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsWindows())
         {
-            // Windows: FILE_APPEND_DATA gives atomic append; FileMode.Append is fine there.
-            using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-            fs.Write(data, 0, data.Length);
-            fs.Flush();
+            // FileMode.Append seeks to EOF in user space and concurrent opens can overwrite one
+            // another. FILE_APPEND_DATA makes each WriteFile append at the kernel's current EOF.
+            const uint FILE_APPEND_DATA = 0x00000004;
+            const uint FILE_SHARE_READ = 0x00000001;
+            const uint FILE_SHARE_WRITE = 0x00000002;
+            const uint FILE_SHARE_DELETE = 0x00000004;
+            const uint OPEN_ALWAYS = 4;
+            const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+            using var handle = CreateFile(path, FILE_APPEND_DATA,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0,
+                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+            if (handle.IsInvalid)
+                throw new IOException($"open append failed for '{path}'", new System.ComponentModel.Win32Exception());
+            if (!WriteFile(handle, data, checked((uint)data.Length), out var written, 0)
+                || written != data.Length)
+                throw new IOException($"append failed for '{path}'", new System.ComponentModel.Win32Exception());
+            if (!FlushFileBuffers(handle))
+                throw new IOException($"flush failed for '{path}'", new System.ComponentModel.Win32Exception());
             return;
         }
+
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            throw new PlatformNotSupportedException("Atomic transcript append is unsupported on this platform.");
 
         // Create the file (with a deterministic 0644) through the managed API *before* the
         // native open, so the append path never passes a creation mode to variadic open(2)

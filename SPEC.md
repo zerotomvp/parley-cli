@@ -108,7 +108,9 @@ Transcript and roster writes do not use lock files. On POSIX, a line is encoded 
 written with one `write()` to a descriptor opened with `O_WRONLY | O_APPEND`; the
 kernel serializes the write at the inode's current end. This avoids `flock`, which
 may be blocked by an agent sandbox and previously caused stuck-lock failures.
-Windows uses `FileMode.Append` as its platform fallback.
+Windows uses `CreateFile` with `FILE_APPEND_DATA` and one `WriteFile`, giving the
+same kernel-EOF append guarantee; `FileMode.Append` is insufficient because its
+user-space EOF positioning can lose concurrent writes.
 
 Readers ignore a torn final JSONL line. `drop` is the exceptional mutation: it
 rewrites through a temporary file and atomic rename, then rolls back cursors that
