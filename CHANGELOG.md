@@ -3,6 +3,21 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.1.0] - 2026-08-02
+
+### Features
+
+- add native channel wake-up ([`92a34e6`](https://github.com/zerotomvp/parley-cli/commit/92a34e6dbd6bee0c8d4fbef4669ba66307a0f8d9))
+
+### Bug fixes
+
+- publish new distribution manifests ([`ad7a8e6`](https://github.com/zerotomvp/parley-cli/commit/ad7a8e6af7bd0db6be4aeebc7ba9f042a9828405))
+
+### Documentation
+
+- prioritize package installation ([`5e0fc70`](https://github.com/zerotomvp/parley-cli/commit/5e0fc70d5d29b178d90d97216cb06e34a5f9efad))
+- simplify Codex remote setup ([`2628eff`](https://github.com/zerotomvp/parley-cli/commit/2628eff7d06e9a8ca147fde000f0830b323a15db))
+
 ## [1.0.0] - 2026-07-31
 
 ### Features
@@ -49,3 +64,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 - derive versions from release tags ([`c38d9a2`](https://github.com/zerotomvp/parley-cli/commit/c38d9a2913ac9a2a4238e8876397db9c7b784c42))
 
 [1.0.0]: https://github.com/zerotomvp/parley-cli/commits/v1.0.0
+[1.1.0]: https://github.com/zerotomvp/parley-cli/compare/v1.0.0...v1.1.0
