@@ -24,23 +24,29 @@ public static class JoinCommand
         {
             Description = "Take over the role even if another session holds it (for reclaiming after a restart)"
         };
+        var wakeOpt = new Option<string>("--wake")
+        {
+            Description = "Wake type: detect resolves the current harness; codex or claude selects it explicitly; never disables wake-up",
+            DefaultValueFactory = _ => "detect"
+        };
 
         var command = new Command("join", "Claim a role on a channel (required before send/recv). Role via --as.")
         {
-            channelArg, forceOpt
+            channelArg, forceOpt, wakeOpt
         };
 
         command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
-            var codexWake = Cli.Services.GetRequiredService<CodexWakeClient>();
+            var wakeClients = Cli.Services.GetRequiredService<WakeClientFactory>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
             var force = pr.GetValue(forceOpt);
+            var wake = ResolveWake(pr.GetValue(wakeOpt)!);
 
-            var result = store.Join(channel, me.Role, me.Sid, force);
+            var result = store.Join(channel, me.Role, me.Sid, wake, force);
             var msg = result switch
             {
                 ChannelStore.JoinResult.AlreadyYours => $"already holds role [blue]{Markup.Escape(me.Role)}[/]",
@@ -51,11 +57,21 @@ public static class JoinCommand
             var checkpoint = result == ChannelStore.JoinResult.Reclaimed
                 ? store.GetCursor(channel, me.Sid)
                 : 0;
-            if (await codexWake.IsLoadedAsync(me.Sid, ct))
+            var wakeClient = wakeClients.Create(wake);
+            if (wakeClient is not null)
             {
-                Stderr.MarkupLine("[green]✓[/] automatic Codex wake-up is available for this thread");
-                Stderr.MarkupLine("[grey]Do not maintain a blocking recv listener. Incoming notifications will tell you to receive.[/]");
-                Stderr.MarkupLine($"[grey]Recovery: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint}[/]");
+                var available = (await wakeClient.ProbeAsync(me.Sid, ct)).Status == WakeStatus.Woken;
+                if (available)
+                {
+                    Stderr.MarkupLine($"[green]✓[/] automatic {Markup.Escape(wakeClient.Name)} wake-up is available for this {(wakeClient is CodexWakeClient ? "thread" : "session")}");
+                    Stderr.MarkupLine("[grey]Do not maintain a blocking recv listener. Incoming notifications will tell you to receive.[/]");
+                    Stderr.MarkupLine($"[grey]Recovery: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint}[/]");
+                }
+                else
+                {
+                    Stderr.MarkupLine("[yellow]Note:[/] automatic wake-up is not currently available; keep this listener running:");
+                    Stderr.MarkupLine($"[grey]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
+                }
             }
             else
             {
@@ -66,5 +82,17 @@ public static class JoinCommand
         }));
 
         return command;
+    }
+
+    private static string ResolveWake(string requested)
+    {
+        requested = requested.ToLowerInvariant();
+        if (requested is "codex" or "claude" or "never") return requested;
+        if (requested != "detect")
+            throw new ArgumentException("--wake must be detect, codex, claude, or never.");
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODEX_THREAD_ID"))) return "codex";
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID"))) return "claude";
+        throw new ArgumentException(
+            "--wake detect could not identify Codex or Claude Code. Pass --wake never for a manual session.");
     }
 }

@@ -22,4 +22,10 @@ namespace ParleyCli.Serialization;
 [JsonSerializable(typeof(RpcRequest<ThreadReadParams>))]
 [JsonSerializable(typeof(RpcRequest<TurnStartParams>))]
 [JsonSerializable(typeof(RpcRequest<TurnSteerParams>))]
+[JsonSerializable(typeof(ClaudeMcpRequest))]
+[JsonSerializable(typeof(ClaudeMcpResponse<ClaudeInitializeResult>))]
+[JsonSerializable(typeof(ClaudeMcpResponse<ClaudeToolsListResult>))]
+[JsonSerializable(typeof(ClaudeMcpResponse<ClaudeEmptyResult>))]
+[JsonSerializable(typeof(ClaudeMcpErrorResponse))]
+[JsonSerializable(typeof(ClaudeChannelNotification))]
 internal partial class ParleyJsonContext : JsonSerializerContext;

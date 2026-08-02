@@ -12,6 +12,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(levelSwitch);
         services.AddSingleton<ChannelStore>();
         services.AddSingleton<CodexWakeClient>();
+        services.AddSingleton<ClaudeWakeClient>();
+        services.AddSingleton<WakeClientFactory>();
+        services.AddSingleton<ClaudeChannelServer>();
         return services;
     }
 }

@@ -17,7 +17,7 @@ For a channel `<channel>`:
   is derived on read rather than stored. Embedded newlines in `text` are JSON-escaped,
   so one physical line remains one record.
 - `<channel>.roster.jsonl` is the append-only role-claim log. Entries contain `ts`,
-  `role`, `sid`, and optional `forced`; replaying the log makes the latest claim for
+  `role`, `sid`, concrete `wake`, and optional `forced`; replaying the log makes the latest claim for
   each role authoritative.
 - `<channel>.<sid>.cursor` records the highest transcript position emitted by the
   CLI to that session. It is diagnostic delivery state, not proof that an agent
@@ -41,15 +41,17 @@ role from the same SID is idempotent. A different SID is rejected unless `--forc
 is present. Send and receive re-resolve the roster and require the caller's SID to
 own its claimed role.
 
+`join --wake detect` (the default) resolves `CODEX_THREAD_ID` to `codex` or
+`CLAUDE_CODE_SESSION_ID` to `claude`; it errors if neither exists. Explicit values
+are `codex`, `claude`, and `never`. Only the resolved concrete value is persisted.
+It is immutable for a role: a forced reclaim may replace its SID only when the wake
+type matches. A participant changing harness must use another role name.
+
 On forced reclaim, a new SID with no cursor is initialized to the current transcript
 end. This makes a restarted participant resume with subsequent messages rather than
 replaying all history. An existing cursor is never moved. Role claims are
 best-effort under concurrency: after append, Parley replays the roster and reports
 if a simultaneous claim won.
-
-Runtime type is deliberately not roster state. Capabilities are detected from live
-process state for each send, so taking a role from another agent runtime cannot
-inherit stale wake behavior.
 
 ## Delivery invariants
 
@@ -113,10 +115,21 @@ rewrites through a temporary file and atomic rename, then rolls back cursors tha
 had passed the removed message. Only the sender may retract its last message unless
 an operator supplies `--force`.
 
-## Codex wake protocol
+## Automatic wake protocols
 
 Automatic wake is a best-effort notification layered on durable transcript delivery.
-For every send using the default `--wake auto`, Parley:
+For a recipient registered with `wake: claude`:
+
+1. `parley claude-channel`, launched by Claude Code as a one-way MCP stdio server,
+   binds a same-user named pipe derived from `PARLEY_HOME` and the live
+   `CLAUDE_CODE_SESSION_ID`;
+2. `send` resolves the destination role's SID and connects directly to that pipe;
+3. the channel emits `notifications/claude/channel` only after Claude's MCP
+   `notifications/initialized` handshake;
+4. a successful pipe acknowledgement means the notification was written to the MCP
+   stream, without advancing the transcript cursor.
+
+For a recipient registered with `wake: codex`:
 
 1. resolves every destination role's current owner SID from the roster;
 2. asks `codex app-server daemon version` for the live control socket;
@@ -126,16 +139,19 @@ For every send using the default `--wake auto`, Parley:
    thread, sends `turn/start`;
 6. re-reads state and retries once if the thread changes state during the operation.
 
-The injected text is only a notice directing Codex to run `parley recv` with the
+The wake transport factory constructs only the transport named by the recipient's
+roster entry. `wake: never` performs no notification. The injected text is only a
+notice directing the recipient to run `parley recv` with the
 correct channel, role, and model checkpoint. The actual message body remains solely
-in the durable transcript. A missing Codex executable, stopped daemon, absent loaded
-SID, or non-Codex recipient silently falls back to filesystem delivery. A failure
-after a loaded SID match is reported as a non-fatal warning. Wake failure cannot
-remove or duplicate the durable message.
+in the durable transcript. A missing Claude channel, Codex executable, stopped
+daemon, or absent loaded SID silently falls back to filesystem delivery. A failure
+after a live Claude connection or loaded Codex SID match is reported as a non-fatal
+warning. Wake failure cannot remove or duplicate the durable
+message.
 
-`join` runs the same non-persisted probe to print appropriate operating guidance,
-but this result is informational rather than cached capability state. A later send
-always probes again.
+`join` probes only the selected concrete transport to print current operating
+guidance. This availability result is informational; send later attempts the role's
+stored transport directly.
 
 ## Administrative behavior
 
@@ -151,7 +167,7 @@ without explicit confirmation.
 Parley has no settings or secrets layer. Dependency injection carries only the
 logging switch and `ChannelStore`.
 
-All persisted, CLI-output, and Codex JSON shapes use compile-time generated
+All persisted, CLI-output, Claude MCP, and Codex JSON shapes use compile-time generated
 `System.Text.Json` metadata. This keeps protocol types explicit and makes Parley's
 own serialization paths safe for single-file and trim analysis without reflection
 fallback.

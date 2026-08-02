@@ -13,19 +13,18 @@ namespace ParleyCli.Integrations;
 /// call by matching the current Parley role owner's sid against app-server's loaded thread ids; no
 /// harness type is persisted in the roster.
 /// </summary>
-public sealed class CodexWakeClient
+public sealed class CodexWakeClient : IWakeClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public enum WakeStatus { Unavailable, NotLoaded, Woken, Failed }
+    public string Name => "Codex";
+    public string TransportName => "Codex app-server";
 
-    public readonly record struct WakeResult(WakeStatus Status, string? Error = null);
-
-    public async Task<bool> IsLoadedAsync(string threadId, CancellationToken ct) =>
-        (await ConnectAndInspectAsync(threadId, null, ct)).Status == WakeStatus.Woken;
+    public Task<WakeResult> ProbeAsync(string threadId, CancellationToken ct) =>
+        ConnectAndInspectAsync(threadId, null, ct);
 
     public Task<WakeResult> WakeAsync(string threadId, string notification, CancellationToken ct) =>
         ConnectAndInspectAsync(threadId, notification, ct);
@@ -68,7 +67,7 @@ public sealed class CodexWakeClient
                 return new(WakeStatus.Failed, loadedError);
 
             var isLoaded = loaded.Result?.Data.Contains(threadId, StringComparer.Ordinal) == true;
-            if (!isLoaded) return new(WakeStatus.NotLoaded);
+            if (!isLoaded) return new(WakeStatus.Unavailable);
             if (notification is null) return new(WakeStatus.Woken);
 
             return await SubmitAsync(connection, threadId, notification, ct);

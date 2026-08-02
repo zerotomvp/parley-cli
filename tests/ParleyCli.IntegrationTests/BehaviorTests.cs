@@ -8,27 +8,56 @@ public sealed class BehaviorTests
     public async Task Join_is_idempotent_rejects_collisions_and_supports_forced_reclaim()
     {
         using var cli = new CliSandbox();
-        (await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-a")).ShouldSucceed();
+        (await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-a", "--wake", "never")).ShouldSucceed();
 
-        var again = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-a");
+        var again = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-a", "--wake", "never");
         again.ShouldSucceed();
         Assert.Contains("already holds role", again.Stderr);
 
-        var collision = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-b");
+        var collision = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-b", "--wake", "never");
         Assert.Equal(1, collision.ExitCode);
         Assert.Contains("already held", collision.Stderr);
 
+        var wrongHarness = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-b",
+            "--wake", "codex", "--force");
+        Assert.Equal(1, wrongHarness.ExitCode);
+        Assert.Contains("permanently registered with --wake", wrongHarness.Stderr);
+
         (await Send(cli, "claims", "author", "sid-a", "--broadcast", "-m", "before restart")).ShouldSucceed();
 
-        var reclaim = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-b", "--force");
+        var reclaim = await cli.RunAsync("join", "claims", "--as", "author", "--sid", "sid-b", "--wake", "never", "--force");
         reclaim.ShouldSucceed();
         Assert.Contains("reclaimed role", reclaim.Stderr);
         Assert.Contains("--last-seen 1", reclaim.Stderr);
 
         var oldOwner = await cli.RunAsync("send", "claims", "--as", "author", "--sid", "sid-a",
-            "--broadcast", "--wake", "never", "-m", "stale");
+            "--broadcast", "-m", "stale");
         Assert.Equal(1, oldOwner.ExitCode);
         Assert.Contains("held by a different session", oldOwner.Stderr);
+    }
+
+    [Fact]
+    public async Task Join_detect_requires_a_supported_harness_environment()
+    {
+        using var cli = new CliSandbox();
+        var result = await cli.RunAsync("join", "manual", "--as", "author", "--sid", "sid-a");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Pass --wake never", result.Stderr);
+    }
+
+    [Fact]
+    public async Task Join_detect_persists_the_concrete_harness_type()
+    {
+        using var cli = new CliSandbox();
+        var result = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["CODEX_THREAD_ID"] = "codex-sid" },
+            "join", "detected", "--as", "author");
+        result.ShouldSucceed();
+
+        var participant = await cli.RunAsync("who", "detected", "--json");
+        participant.ShouldSucceed();
+        Assert.Equal("codex", JsonDocument.Parse(participant.Stdout).RootElement
+            .GetProperty("wake").GetString());
     }
 
     [Fact]
@@ -94,7 +123,7 @@ public sealed class BehaviorTests
         await Join(cli, "sendwait", ("author", "a"), ("reviewer", "r"));
 
         var waiting = cli.Start("send", "sendwait", "--as", "author", "--sid", "a",
-            "--to", "reviewer", "--wake", "never", "-m", "question", "--wait", "--timeout", "5");
+            "--to", "reviewer", "-m", "question", "--wait", "--timeout", "5");
         await WaitForTranscriptLines(cli.Transcript("sendwait"), 1);
         (await Send(cli, "sendwait", "reviewer", "r", "--to", "author", "-m", "answer")).ShouldSucceed();
 
@@ -112,7 +141,7 @@ public sealed class BehaviorTests
         (await Send(cli, "acks", "author", "a", "--to", "reviewer", "-m", "request")).ShouldSucceed();
 
         var ack = await cli.RunAsync("send", "acks", "--as", "reviewer", "--sid", "r",
-            "--ack", "1", "--wake", "never", "-m", "Working now");
+            "--ack", "1", "-m", "Working now");
         ack.ShouldSucceed();
         var received = await Recv(cli, "acks", "author", "a", 0);
         Assert.Contains("[ack #1] Working now", received.Stdout);
@@ -156,7 +185,7 @@ public sealed class BehaviorTests
     public async Task Invalid_names_are_rejected(string channel, string role, string sid)
     {
         using var cli = new CliSandbox();
-        var result = await cli.RunAsync("join", channel, "--as", role, "--sid", sid);
+        var result = await cli.RunAsync("join", channel, "--as", role, "--sid", sid, "--wake", "never");
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("Invalid", result.Stderr);
     }
@@ -197,7 +226,7 @@ public sealed class BehaviorTests
         using var cli = new CliSandbox();
         await Join(cli, "json", ("author", "a"), ("reviewer", "r"));
         var sent = await cli.RunAsync("send", "json", "--as", "author", "--sid", "a",
-            "--to", "reviewer", "--wake", "never", "--json", "-m", "json body");
+            "--to", "reviewer", "--json", "-m", "json body");
         sent.ShouldSucceed();
         Assert.Equal(1, JsonDocument.Parse(sent.Stdout).RootElement.GetProperty("seq").GetInt32());
 
@@ -217,12 +246,12 @@ public sealed class BehaviorTests
     private static async Task Join(CliSandbox cli, string channel, params (string role, string sid)[] identities)
     {
         foreach (var (role, sid) in identities)
-            (await cli.RunAsync("join", channel, "--as", role, "--sid", sid)).ShouldSucceed();
+            (await cli.RunAsync("join", channel, "--as", role, "--sid", sid, "--wake", "never")).ShouldSucceed();
     }
 
     private static Task<CliResult> Send(CliSandbox cli, string channel, string role, string sid,
         params string[] arguments) => cli.RunAsync(["send", channel, "--as", role, "--sid", sid,
-            "--wake", "never", .. arguments]);
+            .. arguments]);
 
     private static Task<CliResult> Recv(CliSandbox cli, string channel, string role, string sid, int lastSeen) =>
         cli.RunAsync("recv", channel, "--as", role, "--sid", sid, "--last-seen", lastSeen.ToString());

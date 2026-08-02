@@ -44,7 +44,7 @@ public static class WhoCommand
             }
 
             foreach (var p in participants)
-                Console.WriteLine($"{p.Role}  ·  {p.MessageCount} msg  ·  last {FormatTime(p.LastActivity)}  ·  sid {ShortSid(p.Sid)}");
+                Console.WriteLine($"{p.Role}  ·  wake {p.Wake}  ·  {p.MessageCount} msg  ·  last {FormatTime(p.LastActivity)}  ·  sid {ShortSid(p.Sid)}");
             return Task.FromResult(0);
         }));
 

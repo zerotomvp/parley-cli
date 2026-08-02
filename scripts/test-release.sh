@@ -24,10 +24,10 @@ fi
 
 "$parley" --version
 export PARLEY_HOME="$test_root/state"
-"$parley" join smoke --as sender --sid smoke-sender >/dev/null
-"$parley" join smoke --as receiver --sid smoke-receiver >/dev/null
+"$parley" join smoke --as sender --sid smoke-sender --wake never >/dev/null
+"$parley" join smoke --as receiver --sid smoke-receiver --wake never >/dev/null
 seq=$("$parley" send smoke --as sender --sid smoke-sender --to receiver \
-    --wake never -m 'release smoke')
+    -m 'release smoke')
 [[ "$seq" == 1 ]]
 received=$("$parley" recv smoke --as receiver --sid smoke-receiver --last-seen 0)
 grep -Fq 'release smoke' <<<"$received"

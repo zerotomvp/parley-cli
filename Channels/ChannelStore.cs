@@ -93,6 +93,9 @@ public class ChannelStore
     public string? OwnerOf(string channel, string role) =>
         Owners(channel).TryGetValue(role, out var e) ? e.Sid : null;
 
+    public RosterEntryWire? MembershipOf(string channel, string role) =>
+        Owners(channel).GetValueOrDefault(role);
+
     public enum JoinResult { Joined, AlreadyYours, Reclaimed }
 
     /// <summary>
@@ -101,27 +104,35 @@ public class ChannelStore
     /// that restarted under a new sid). Idempotent if this sid already owns it. Best-effort under
     /// concurrency: after appending we re-read and, if we lost a simultaneous claim, report it.
     /// </summary>
-    public JoinResult Join(string channel, string role, string sid, bool force = false)
+    public JoinResult Join(string channel, string role, string sid, string wake, bool force = false)
     {
         Directory.CreateDirectory(ChannelsDir);
-        var owner = OwnerOf(channel, role);
-        if (owner == sid) return JoinResult.AlreadyYours;
-        if (owner != null && !force)
+        var membership = MembershipOf(channel, role);
+        var owner = membership?.Sid;
+        var storedWake = membership?.Wake;
+        if (owner == sid && storedWake == wake) return JoinResult.AlreadyYours;
+        if (storedWake is not null && storedWake != wake)
+            throw new ArgumentException(
+                $"Role '{role}' on channel '{channel}' is permanently registered with --wake {storedWake}. " +
+                "Use a different role name for another wake type.");
+        if (owner != null && owner != sid && !force)
             throw new ArgumentException(
                 $"Role '{role}' on channel '{channel}' is already held by another session. " +
                 "Pick a different role, or pass --force to take it over (e.g. after a restart).");
 
-        var wire = new RosterEntryWire(DateTimeOffset.UtcNow.ToString("o"), role, sid, force ? true : null);
+        var wire = new RosterEntryWire(DateTimeOffset.UtcNow.ToString("o"), role, sid, wake, force ? true : null);
         AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(wire, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
 
         // Re-read: if a concurrent claim landed after ours, latest-wins may have handed the role away.
-        var nowOwner = OwnerOf(channel, role);
-        if (nowOwner != sid)
+        var nowOwner = MembershipOf(channel, role);
+        if (nowOwner?.Sid != sid || nowOwner.Wake != wake)
             throw new ArgumentException(
                 $"Lost a concurrent claim on role '{role}' (now held by another session). Re-join or pick another role.");
 
-        var result = owner == null ? JoinResult.Joined : JoinResult.Reclaimed;
+        var result = owner == null ? JoinResult.Joined
+            : owner == sid ? JoinResult.AlreadyYours
+            : JoinResult.Reclaimed;
 
         // On a forced reclaim under a *new* sid, start this session at the current end of the
         // transcript so a later recv surfaces only messages that arrive *after* the reclaim — a
@@ -165,7 +176,7 @@ public class ChannelStore
             {
                 var mine = msgs.Where(m => m.Sid == e.Sid).ToList();
                 var last = mine.Count > 0 ? mine[^1].Ts : e.Ts;
-                return new Participant(e.Role, e.Sid, e.Ts, mine.Count, last);
+                return new Participant(e.Role, e.Sid, e.Wake ?? "never", e.Ts, mine.Count, last);
             })
             .OrderBy(p => p.JoinedAt, StringComparer.Ordinal)
             .ToList();

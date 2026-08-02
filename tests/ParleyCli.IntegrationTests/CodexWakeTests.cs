@@ -90,8 +90,8 @@ public sealed class CodexWakeTests
 
     private static async Task JoinPeers(CliSandbox cli, string channel)
     {
-        (await cli.RunAsync("join", channel, "--as", "author", "--sid", "sender-sid")).ShouldSucceed();
-        (await cli.RunAsync("join", channel, "--as", "reviewer", "--sid", "recipient-sid")).ShouldSucceed();
+        (await cli.RunAsync("join", channel, "--as", "author", "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
+        (await cli.RunAsync("join", channel, "--as", "reviewer", "--sid", "recipient-sid", "--wake", "codex")).ShouldSucceed();
     }
 
     private static Task<CliResult> SendAuto(CliSandbox cli, string channel, string message) =>

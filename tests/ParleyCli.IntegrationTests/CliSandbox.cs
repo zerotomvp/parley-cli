@@ -49,7 +49,16 @@ internal sealed class CliSandbox : IDisposable
     public async Task<CliResult> RunAsync(params string[] arguments) =>
         await Start(arguments).Completion;
 
-    public RunningCli Start(params string[] arguments)
+    public async Task<CliResult> RunWithEnvironmentAsync(
+        IReadOnlyDictionary<string, string> environment, params string[] arguments) =>
+        await Start(arguments, closeInput: true, environment: environment).Completion;
+
+    public RunningCli Start(params string[] arguments) => Start(arguments, closeInput: true);
+
+    public RunningCli StartInteractive(params string[] arguments) => Start(arguments, closeInput: false);
+
+    private RunningCli Start(string[] arguments, bool closeInput,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var start = new ProcessStartInfo
         {
@@ -68,12 +77,15 @@ internal sealed class CliSandbox : IDisposable
         start.Environment.Remove("PARLEY_ID");
         start.Environment.Remove("CODEX_THREAD_ID");
         start.Environment.Remove("CLAUDE_CODE_SESSION_ID");
+        if (environment is not null)
+            foreach (var (name, value) in environment)
+                start.Environment[name] = value;
         start.Environment["NO_COLOR"] = "1";
         start.Environment["PATH"] = _fakeBin;
 
         var process = Process.Start(start) ?? throw new InvalidOperationException("Failed to start Parley.");
-        process.StandardInput.Close();
-        return new RunningCli(process);
+        if (closeInput) process.StandardInput.Close();
+        return new RunningCli(process, captureOutput: closeInput);
     }
 
     public string Transcript(string channel) =>
@@ -118,14 +130,29 @@ internal sealed class CliSandbox : IDisposable
 
 internal sealed class RunningCli
 {
-    public RunningCli(Process process)
+    public RunningCli(Process process, bool captureOutput = true)
     {
         Process = process;
-        Completion = CompleteAsync(process);
+        Completion = captureOutput ? CompleteAsync(process) : WaitOnlyAsync(process);
     }
 
     public Process Process { get; }
     public Task<CliResult> Completion { get; }
+
+    private static async Task<CliResult> WaitOnlyAsync(Process process)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw;
+        }
+        return new CliResult(process.ExitCode, "", "");
+    }
 
     private static async Task<CliResult> CompleteAsync(Process process)
     {

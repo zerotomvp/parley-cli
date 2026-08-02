@@ -17,12 +17,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'parley --version failed.' }
 
     $env:PARLEY_HOME = Join-Path $testRoot 'state'
-    & $parley.FullName join smoke --as sender --sid smoke-sender | Out-Null
+    & $parley.FullName join smoke --as sender --sid smoke-sender --wake never | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'sender join failed.' }
-    & $parley.FullName join smoke --as receiver --sid smoke-receiver | Out-Null
+    & $parley.FullName join smoke --as receiver --sid smoke-receiver --wake never | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'receiver join failed.' }
 
-    $sequence = & $parley.FullName send smoke --as sender --sid smoke-sender --to receiver --wake never -m 'release smoke'
+    $sequence = & $parley.FullName send smoke --as sender --sid smoke-sender --to receiver -m 'release smoke'
     if ($LASTEXITCODE -ne 0 -or $sequence -ne '1') { throw 'send failed.' }
     $received = & $parley.FullName recv smoke --as receiver --sid smoke-receiver --last-seen 0
     if ($LASTEXITCODE -ne 0 -or -not ($received -match 'release smoke')) { throw 'receive failed.' }
