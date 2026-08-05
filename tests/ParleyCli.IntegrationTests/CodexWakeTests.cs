@@ -14,6 +14,9 @@ public sealed class CodexWakeTests
         var sent = await SendAuto(cli, "notloaded", "message");
         sent.ShouldSucceed();
         Assert.Empty(server.SubmittedMethods);
+        Assert.Contains("live Codex app-server endpoint", sent.Stderr);
+        Assert.Contains("reviewer is unavailable", sent.Stderr);
+        Assert.Contains("parley recv notloaded --as reviewer", sent.Stderr);
         Assert.Contains("message", File.ReadAllText(cli.Transcript("notloaded")));
     }
 

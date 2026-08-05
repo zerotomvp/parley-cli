@@ -44,7 +44,8 @@ public static class JoinCommand
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
             var force = pr.GetValue(forceOpt);
-            var wake = ResolveWake(pr.GetValue(wakeOpt)!);
+            var requestedWake = pr.GetValue(wakeOpt)!;
+            var wake = ResolveWake(requestedWake);
 
             var result = store.Join(channel, me.Role, me.Sid, wake, force);
             var msg = result switch
@@ -54,29 +55,38 @@ public static class JoinCommand
                 _                                    => $"joined [blue]{Markup.Escape(channel)}[/] as [blue]{Markup.Escape(me.Role)}[/]",
             };
             Stderr.MarkupLine($"[green]✓[/] {msg} [grey](sid {Markup.Escape(ShortSid(me.Sid))})[/]");
+            var resolution = requestedWake.Equals("detect", StringComparison.OrdinalIgnoreCase)
+                ? "detected from the active harness"
+                : "selected explicitly";
+            Stderr.MarkupLine($"[green]✓[/] wake type [blue]{Markup.Escape(wake)}[/] persisted ({resolution})");
             var checkpoint = result == ChannelStore.JoinResult.Reclaimed
                 ? store.GetCursor(channel, me.Sid)
                 : 0;
             var wakeClient = wakeClients.Create(wake);
             if (wakeClient is not null)
             {
-                var available = (await wakeClient.ProbeAsync(me.Sid, ct)).Status == WakeStatus.Woken;
-                if (available)
+                var probe = await wakeClient.ProbeAsync(me.Sid, ct);
+                if (probe.Status == WakeStatus.Woken)
                 {
-                    Stderr.MarkupLine($"[green]✓[/] automatic {Markup.Escape(wakeClient.Name)} wake-up is available for this {(wakeClient is CodexWakeClient ? "thread" : "session")}");
+                    Stderr.MarkupLine($"[green]✓[/] live {Markup.Escape(wakeClient.TransportName)} endpoint is available for this {(wakeClient is CodexWakeClient ? "thread" : "session")}");
                     Stderr.MarkupLine("[grey]Do not maintain a blocking recv listener. Incoming notifications will tell you to receive.[/]");
                     Stderr.MarkupLine($"[grey]Recovery: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint}[/]");
                 }
                 else
                 {
-                    Stderr.MarkupLine("[yellow]Note:[/] automatic wake-up is not currently available; keep this listener running:");
+                    var detail = probe.Status == WakeStatus.Failed && !string.IsNullOrWhiteSpace(probe.Error)
+                        ? $" ({Markup.Escape(probe.Error)})"
+                        : "";
+                    Stderr.MarkupLine($"[yellow]Note:[/] wake type is configured, but its live endpoint is unavailable{detail}; keep this foreground listener running:");
                     Stderr.MarkupLine($"[grey]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
+                    Stderr.MarkupLine("[yellow]Do not move the fallback listener into the background; its output must reach model context.[/]");
                 }
             }
             else
             {
-                Stderr.MarkupLine("[yellow]Note:[/] automatic wake-up is not currently available; keep this listener running:");
+                Stderr.MarkupLine("[yellow]Note:[/] wake type never disables automatic wake-up; keep this foreground listener running:");
                 Stderr.MarkupLine($"[grey]parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
+                Stderr.MarkupLine("[yellow]Do not move the fallback listener into the background; its output must reach model context.[/]");
             }
             return 0;
         }));

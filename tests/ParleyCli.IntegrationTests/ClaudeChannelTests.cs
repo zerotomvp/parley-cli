@@ -19,7 +19,7 @@ public sealed class ClaudeChannelTests
             (await cli.RunAsync("join", "claude-wake", "--as", "sender", "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
             var joined = await cli.RunAsync("join", "claude-wake", "--as", "recipient", "--sid", "recipient-sid", "--wake", "claude");
             joined.ShouldSucceed();
-            Assert.True(joined.Stderr.Contains("automatic Claude Code wake-up is available"),
+            Assert.True(joined.Stderr.Contains("live Claude Code channel endpoint is available"),
                 $"join did not detect the uninitialized channel. join stderr:\n{joined.Stderr}");
 
             await channel.Process.StandardInput.WriteLineAsync(
@@ -98,7 +98,7 @@ public sealed class ClaudeChannelTests
             var joined = await cli.RunAsync("join", "resilient", "--as", "recipient",
                 "--sid", "resilient-sid", "--wake", "claude");
             joined.ShouldSucceed();
-            Assert.Contains("automatic Claude Code wake-up is available", joined.Stderr);
+            Assert.Contains("live Claude Code channel endpoint is available", joined.Stderr);
         }
         finally
         {

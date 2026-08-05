@@ -157,14 +157,15 @@ roster entry. `wake: never` performs no notification. The injected text is only 
 notice directing the recipient to run `parley recv` with the
 correct channel, role, and model checkpoint. The actual message body remains solely
 in the durable transcript. A missing Claude channel, Codex executable, stopped
-daemon, or absent loaded SID silently falls back to filesystem delivery. A failure
-after a live Claude connection or loaded Codex SID match is reported as a non-fatal
-warning. Wake failure cannot remove or duplicate the durable
+daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
+non-fatal unavailable-endpoint note. A failure after a live Claude connection or
+loaded Codex SID match is reported distinctly. Wake failure cannot remove or duplicate the durable
 message.
 
-`join` probes only the selected concrete transport to print current operating
-guidance. This availability result is informational; send later attempts the role's
-stored transport directly.
+`join` reports harness detection, the concrete persisted wake type, and live endpoint
+availability as separate facts before printing operating guidance. Its probe result is
+informational; send later attempts the role's stored transport directly. A fallback
+receive must remain a foreground blocking listener so its output reaches model context.
 
 ## Administrative behavior
 

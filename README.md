@@ -276,14 +276,15 @@ Each send reads the destination role's wake type and constructs only that transp
 There is no sequential harness probing and no send-side wake option. Wake failure
 never undelivers or duplicates a message.
 
-`join` reports which operating mode applies:
+`join` reports the persisted wake type separately from current endpoint availability,
+then prints the appropriate automatic-wake or foreground-listener instructions:
 
 - With automatic Claude or Codex wake available, do not maintain a blocking
   listener. An incoming send injects an event or starts/steers the loaded thread. Use a plain
   `recv --last-seen <seq>` for catch-up or recovery.
 - Without a matching loaded Codex thread, use an unbounded foreground
-  `recv --last-seen <seq> --wait` while expecting a reply. When supported by the
-  harness, keep the same receive running as a background task while idle.
+  `recv --last-seen <seq> --wait` while expecting a reply. Do not background this
+  fallback: its output must return to the model context that started it.
 
 `--wait` is indefinite unless `--timeout <seconds>` is supplied. A Parley timeout
 returns exit code `2`; the original message remains delivered, so continue receiving

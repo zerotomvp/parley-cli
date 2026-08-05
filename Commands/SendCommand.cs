@@ -172,6 +172,8 @@ public static class SendCommand
                     var result = await wakeClient.WakeAsync(membership.Sid, notification, ct);
                     if (result.Status == WakeStatus.Woken)
                         Stderr.MarkupLine($"[green]✓[/] woke [blue]{Markup.Escape(recipientRole)}[/] through {Markup.Escape(wakeClient.TransportName)}");
+                    else if (result.Status == WakeStatus.Unavailable)
+                        Stderr.MarkupLine($"[yellow]Note:[/] message remains delivered, but the live {Markup.Escape(wakeClient.TransportName)} endpoint for [blue]{Markup.Escape(recipientRole)}[/] is unavailable. Ask it to run: [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(recipientRole)} --last-seen <seq>[/]");
                     else if (result.Status == WakeStatus.Failed)
                         Stderr.MarkupLine($"[yellow]Note:[/] message remains delivered, but waking [blue]{Markup.Escape(recipientRole)}[/] failed: {Markup.Escape(result.Error ?? "unknown error")}");
                 }
