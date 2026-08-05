@@ -5,6 +5,24 @@ namespace ParleyCli.IntegrationTests;
 public sealed class BehaviorTests
 {
     [Fact]
+    public async Task Claude_diagnostics_are_emitted_only_when_explicitly_enabled()
+    {
+        using var cli = new CliSandbox();
+
+        var normal = await cli.RunAsync("join", "trace-off", "--as", "recipient", "--sid", "normal-sid", "--wake", "claude");
+        normal.ShouldSucceed();
+        Assert.DoesNotContain("[trace]", normal.Stderr);
+
+        var traced = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["PARLEY_TRACE"] = "1" },
+            "join", "trace-on", "--as", "recipient", "--sid", "traced-sid", "--wake", "claude");
+        traced.ShouldSucceed();
+        Assert.Contains("[trace] diagnostics enabled by PARLEY_TRACE", traced.Stderr);
+        Assert.Contains("kind=probe", traced.Stderr);
+        Assert.Contains("classification=unavailable", traced.Stderr);
+    }
+
+    [Fact]
     public async Task Join_is_idempotent_rejects_collisions_and_supports_forced_reclaim()
     {
         using var cli = new CliSandbox();

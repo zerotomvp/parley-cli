@@ -407,6 +407,22 @@ the app-server is running and the intended thread is loaded. In both cases, conf
 the roster SID shown by `parley who` matches the session. `join` prints the currently
 detected wake mode; otherwise use `recv ... --last-seen <seq> --wait` as fallback.
 
+To capture transport diagnostics without changing wake behavior, start the affected
+agent with tracing explicitly enabled:
+
+```bash
+PARLEY_TRACE=1 claude
+```
+
+For Claude Code, the same variable may be added to the Parley MCP server's `env`
+object. Restart Claude after changing MCP configuration. Tracing covers MCP
+initialization, named-pipe connections, probes, notifications, acknowledgements,
+timings, and exception details. It never records Parley message bodies or raw MCP
+frames. Trace events go to stderr and the rolling `parley-cli-*.log` files under
+the platform application-data directory (`~/.config/parley-cli/logs` on Linux).
+Accepted opt-in values are `1`, `true`, `yes`, and `on` (case-insensitive); unset
+or any other value leaves tracing disabled.
+
 ### `parley` is not found
 
 For a .NET global-tool installation, ensure the .NET tools directory is on `PATH`

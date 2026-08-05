@@ -33,7 +33,9 @@ public static class CommandHelpers
     public static void ApplyLogLevel(ParseResult pr)
     {
         var levelSwitch = Cli.Services.GetRequiredService<LoggingLevelSwitch>();
-        levelSwitch.MinimumLevel = LoggingConfiguration.ParseLevel(pr.GetValue(GlobalOptions.LogLevel) ?? "info");
+        levelSwitch.MinimumLevel = LoggingConfiguration.TraceEnabled
+            ? Serilog.Events.LogEventLevel.Verbose
+            : LoggingConfiguration.ParseLevel(pr.GetValue(GlobalOptions.LogLevel) ?? "info");
     }
 
     /// <summary>

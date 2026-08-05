@@ -7,8 +7,13 @@ using ParleyCli.Logging;
 using Serilog;
 using Serilog.Core;
 
-var levelSwitch = new LoggingLevelSwitch();
+var levelSwitch = new LoggingLevelSwitch(LoggingConfiguration.InitialLevel);
 Log.Logger = LoggingConfiguration.CreateLogger(levelSwitch);
+
+if (LoggingConfiguration.TraceEnabled)
+    Log.Verbose("[trace] diagnostics enabled by {EnvironmentVariable}; version={Version}",
+        LoggingConfiguration.TraceEnvironmentVariable,
+        typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown");
 
 Cli.ConfigureServices(s => s.AddParleyServices(levelSwitch));
 

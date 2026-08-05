@@ -73,6 +73,12 @@ is allowed, with a best-effort warning, because that role may join later.
 Old delivery-less transcript records are defensively treated as broadcasts so
 migrated data is not hidden, but the current send path cannot create such records.
 
+Transport tracing is operational diagnostics, not channel state. It is disabled
+unless `PARLEY_TRACE` is explicitly set to `1`, `true`, `yes`, or `on`. Claude
+traces contain lifecycle metadata, identifiers, frame lengths, timing, status, and
+exceptions, but never transcript message bodies or raw MCP frames. Enabling tracing
+does not alter wake timeouts, acknowledgement rules, retries, or fallback behavior.
+
 `--expect-new` guards an opener against channel-name reuse. It and the stale check
 performed by `drop` are best-effort checks; a small check-to-write race is accepted.
 Random five-letter channel suffixes provide the primary namespace separation.

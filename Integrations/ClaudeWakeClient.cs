@@ -1,6 +1,8 @@
 using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
+using Serilog;
 
 namespace ParleyCli.Integrations;
 
@@ -18,21 +20,33 @@ public sealed class ClaudeWakeClient : IWakeClient
 
     private async Task<WakeResult> SendAsync(string sid, string? notification, CancellationToken ct)
     {
+        var operation = Guid.NewGuid().ToString("N")[..8];
+        var pipeName = PipeName(sid);
+        var kind = notification is null ? "probe" : "wake";
+        var elapsed = Stopwatch.StartNew();
         var connected = false;
+        Log.Verbose("[trace] Claude pipe client {Operation} begin; kind={Kind} sid={Sid} pipe={Pipe} notificationLength={NotificationLength}",
+            operation, kind, sid, pipeName, notification?.Length ?? 0);
         try
         {
             await using var pipe = new NamedPipeClientStream(
-                ".", PipeName(sid), PipeDirection.InOut, PipeOptions.Asynchronous);
+                ".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromMilliseconds(500));
+            Log.Verbose("[trace] Claude pipe client {Operation} connecting; timeoutMs=500", operation);
             await pipe.ConnectAsync(timeout.Token);
             connected = true;
+            Log.Verbose("[trace] Claude pipe client {Operation} connected after {ElapsedMs}ms", operation, elapsed.ElapsedMilliseconds);
 
             await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true)
                 { AutoFlush = true };
             using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+            Log.Verbose("[trace] Claude pipe client {Operation} writing {Kind} frame", operation, kind);
             await writer.WriteLineAsync(notification ?? string.Empty);
+            Log.Verbose("[trace] Claude pipe client {Operation} awaiting acknowledgement", operation);
             var response = await reader.ReadLineAsync(timeout.Token);
+            Log.Verbose("[trace] Claude pipe client {Operation} completed after {ElapsedMs}ms; acknowledged={Acknowledged} responseLength={ResponseLength}",
+                operation, elapsed.ElapsedMilliseconds, response == "ok", response?.Length ?? 0);
             return response == "ok"
                 ? new(WakeStatus.Woken)
                 : new(WakeStatus.Failed, response ?? "Claude channel closed without acknowledging the notice.");
@@ -40,6 +54,9 @@ public sealed class ClaudeWakeClient : IWakeClient
         catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException)
         {
             if (ct.IsCancellationRequested) throw new OperationCanceledException(ct);
+            Log.Verbose(ex,
+                "[trace] Claude pipe client {Operation} failed after {ElapsedMs}ms; kind={Kind} connected={Connected} classification={Classification}",
+                operation, elapsed.ElapsedMilliseconds, kind, connected, connected ? "failed" : "unavailable");
             return connected ? new(WakeStatus.Failed, ex.Message) : new(WakeStatus.Unavailable);
         }
     }
