@@ -131,11 +131,16 @@ For a recipient registered with `wake: claude`:
 1. `parley claude-channel`, launched by Claude Code as a one-way MCP stdio server,
    binds a same-user named pipe derived from `PARLEY_HOME` and the live
    `CLAUDE_CODE_SESSION_ID`;
-2. `send` resolves the destination role's SID and connects directly to that pipe;
-3. the channel emits `notifications/claude/channel` only after Claude's MCP
+2. `join` probes only that the named-pipe endpoint is accepting connections; this
+   does not wait for Claude's MCP initialization handshake;
+3. `send` resolves the destination role's SID and connects directly to that pipe;
+4. the channel emits `notifications/claude/channel` only after Claude's MCP
    `notifications/initialized` handshake;
-4. a successful pipe acknowledgement means the notification was written to the MCP
+5. a successful pipe acknowledgement means the notification was written to the MCP
    stream, without advancing the transcript cursor.
+
+Each pipe connection is isolated. A client that disconnects or faults cannot stop
+the channel subprocess from accepting later probes and wakes.
 
 For a recipient registered with `wake: codex`:
 

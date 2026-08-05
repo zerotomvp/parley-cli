@@ -12,7 +12,8 @@ public sealed class ClaudeChannelServer
 {
     private const string Instructions =
         "Parley events are wake notices for durable agent-to-agent messages. " +
-        "Run the exact parley recv command in each notice; the notice itself is not message delivery.";
+        "Run the exact nonblocking parley recv command in each notice without adding --wait or " +
+        "moving it into the background; the notice itself is not message delivery.";
 
     private readonly SemaphoreSlim _stdout = new(1, 1);
     private readonly TaskCompletionSource _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -120,11 +121,11 @@ public sealed class ClaudeChannelServer
                 var kind = string.IsNullOrEmpty(notification) ? "probe" : "wake";
                 Log.Verbose("[trace] Claude pipe server instance {Instance} received {Kind}; notificationLength={NotificationLength} initialized={Initialized}",
                     current, kind, notification?.Length ?? 0, _initialized.Task.IsCompleted);
-                var initializedWait = Stopwatch.StartNew();
-                await _initialized.Task.WaitAsync(ct);
-                Log.Verbose("[trace] Claude pipe server instance {Instance} initialization gate passed after {ElapsedMs}ms", current, initializedWait.ElapsedMilliseconds);
                 if (!string.IsNullOrEmpty(notification))
                 {
+                    var initializedWait = Stopwatch.StartNew();
+                    await _initialized.Task.WaitAsync(ct);
+                    Log.Verbose("[trace] Claude pipe server instance {Instance} initialization gate passed after {ElapsedMs}ms", current, initializedWait.ElapsedMilliseconds);
                     Log.Verbose("[trace] Claude pipe server instance {Instance} emitting channel notification", current);
                     await WriteAsync(new ClaudeChannelNotification(
                         "2.0", "notifications/claude/channel", new ClaudeChannelParams(notification)), ct);
@@ -136,6 +137,13 @@ public sealed class ClaudeChannelServer
             catch (IOException ex) when (!ct.IsCancellationRequested)
             {
                 Log.Verbose(ex, "[trace] Claude pipe server instance {Instance} ended with I/O failure", current);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                Log.Error(ex,
+                    "Claude pipe server instance {Instance} failed unexpectedly; another accept will be attempted",
+                    current);
+                await Task.Delay(100, ct);
             }
         }
         Log.Verbose("[trace] Claude pipe server loop cancelled; sid={Sid}", sid);
