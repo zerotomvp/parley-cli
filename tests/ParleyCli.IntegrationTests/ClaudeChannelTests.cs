@@ -22,6 +22,8 @@ public sealed class ClaudeChannelTests
             joined.ShouldSucceed();
             Assert.True(joined.Stderr.Contains("live Claude Code channel endpoint is available"),
                 $"join did not detect the uninitialized channel. join stderr:\n{joined.Stderr}");
+            Assert.Contains("Do not maintain a blocking recv listener", joined.Stderr);
+            Assert.DoesNotContain("--wait", joined.Stderr);
 
             await channel.Process.StandardInput.WriteLineAsync(
                 """{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2025-06-18"}}""");
@@ -75,6 +77,10 @@ public sealed class ClaudeChannelTests
         var channel = cli.StartInteractive("claude-channel", "--sid", "resilient-sid");
         try
         {
+            // A probe client can disappear before reading its acknowledgement.
+            await SendAndAbandonAsync(cli.Store, "resilient-sid", "");
+            await Task.Delay(300);
+
             await using (var abandoned = new NamedPipeClientStream(
                 ".", PipeName(cli.Store, "resilient-sid"), PipeDirection.InOut, PipeOptions.Asynchronous))
             {
@@ -84,6 +90,7 @@ public sealed class ClaudeChannelTests
                     { AutoFlush = true };
                 await writer.WriteLineAsync("abandoned wake");
             }
+            await Task.Delay(300);
 
             await channel.Process.StandardInput.WriteLineAsync(
                 """{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2025-06-18"}}""");
@@ -106,6 +113,28 @@ public sealed class ClaudeChannelTests
             channel.Process.StandardInput.Close();
             await channel.Completion;
         }
+    }
+
+    [Fact]
+    public async Task Unexpected_pipe_frame_is_traced_and_followed_by_another_accept()
+    {
+        using var cli = new CliSandbox();
+        var channel = cli.StartInteractiveWithEnvironment(
+            new Dictionary<string, string> { ["PARLEY_TRACE"] = "1" },
+            "claude-channel", "--sid", "fault-sid");
+        var stderr = channel.Process.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAndAbandonAsync(cli.Store, "fault-sid", "@parley/rebind:bad.sid");
+            await Task.Delay(300);
+            Assert.Equal("ok", await ProbeAsync(cli.Store, "fault-sid"));
+        }
+        finally
+        {
+            channel.Process.StandardInput.Close();
+            await channel.Completion;
+        }
+        Assert.Contains("failed unexpectedly; another accept will be attempted", await stderr);
     }
 
     [Fact]
@@ -178,6 +207,39 @@ public sealed class ClaudeChannelTests
         Assert.Contains("held by a different session", rejected.Stderr);
     }
 
+    [Fact]
+    public async Task Claude_sid_rotation_falls_back_when_agent_discovery_is_unavailable()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        cli.ConfigureClaudeAgents(AgentsJson("old-sid", pid: 7, startedAt: 100));
+        (await cli.RunAsync("join", "no-discovery", "--as", "recipient", "--sid", "old-sid", "--wake", "claude")).ShouldSucceed();
+
+        cli.UpdateClaudeAgents("this Claude version does not support JSON discovery");
+        var rejected = await cli.RunAsync("recv", "no-discovery", "--as", "recipient", "--sid", "new-sid",
+            "--last-seen", "0");
+        Assert.Equal(1, rejected.ExitCode);
+        Assert.Contains("held by a different session", rejected.Stderr);
+    }
+
+    [Fact]
+    public async Task Explicit_force_reclaim_refreshes_Claude_process_correlation()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        cli.ConfigureClaudeAgents(AgentsJson("old-sid", pid: 7, startedAt: 100));
+        (await cli.RunAsync("join", "force-claude", "--as", "recipient", "--sid", "old-sid", "--wake", "claude")).ShouldSucceed();
+
+        cli.UpdateClaudeAgents(AgentsJson("replacement-sid", pid: 8, startedAt: 200));
+        var reclaimed = await cli.RunAsync("join", "force-claude", "--as", "recipient",
+            "--sid", "replacement-sid", "--wake", "claude", "--force");
+        reclaimed.ShouldSucceed();
+        Assert.Contains("reclaimed role", reclaimed.Stderr);
+
+        var who = await cli.RunAsync("who", "force-claude", "--json");
+        Assert.Contains("replacement-sid", who.Stdout);
+    }
+
     private static async Task InitializeAsync(Process process)
     {
         await process.StandardInput.WriteLineAsync(
@@ -200,6 +262,17 @@ public sealed class ClaudeChannelTests
         using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
         await writer.WriteLineAsync("");
         return await reader.ReadLineAsync(timeout.Token);
+    }
+
+    private static async Task SendAndAbandonAsync(string home, string sid, string frame)
+    {
+        await using var pipe = new NamedPipeClientStream(
+            ".", PipeName(home, sid), PipeDirection.InOut, PipeOptions.Asynchronous);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await pipe.ConnectAsync(timeout.Token);
+        await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true)
+            { AutoFlush = true };
+        await writer.WriteLineAsync(frame);
     }
 
     private static string AgentsJson(string sid, int pid, long startedAt) =>

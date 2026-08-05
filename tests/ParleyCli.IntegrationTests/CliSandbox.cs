@@ -57,6 +57,10 @@ internal sealed class CliSandbox : IDisposable
 
     public RunningCli StartInteractive(params string[] arguments) => Start(arguments, closeInput: false);
 
+    public RunningCli StartInteractiveWithEnvironment(
+        IReadOnlyDictionary<string, string> environment, params string[] arguments) =>
+        Start(arguments, closeInput: false, environment: environment);
+
     private RunningCli Start(string[] arguments, bool closeInput,
         IReadOnlyDictionary<string, string>? environment = null)
     {
