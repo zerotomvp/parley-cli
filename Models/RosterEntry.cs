@@ -6,7 +6,15 @@ namespace ParleyCli.Models;
 /// current owner of a role is the latest entry for it; a plain claim is only written when the role
 /// is free or already this sid's, while a <see cref="Forced"/> claim takes it over (session restart).
 /// </summary>
-public record RosterEntryWire(string Ts, string Role, string Sid, string? Wake = null, bool? Forced = null);
+public record RosterEntryWire(
+    string Ts,
+    string Role,
+    string Sid,
+    string? Wake = null,
+    bool? Forced = null,
+    int? ClaudePid = null,
+    long? ClaudeStartedAt = null,
+    string? PreviousSid = null);
 
 /// <summary>Resolved roster participant: the role, its current owning sid, and activity.</summary>
 /// <param name="Role">The claimed role.</param>

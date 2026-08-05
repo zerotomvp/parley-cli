@@ -18,7 +18,11 @@ public sealed class ClaudeWakeClient : IWakeClient
     public async Task<WakeResult> WakeAsync(string sid, string notification, CancellationToken ct) =>
         await SendAsync(sid, notification, ct);
 
-    private async Task<WakeResult> SendAsync(string sid, string? notification, CancellationToken ct)
+    public Task<WakeResult> RebindAsync(string oldSid, string newSid, CancellationToken ct) =>
+        SendAsync(oldSid, RebindPrefix + newSid, ct, TimeSpan.FromSeconds(2));
+
+    private async Task<WakeResult> SendAsync(string sid, string? notification, CancellationToken ct,
+        TimeSpan? operationTimeout = null)
     {
         var operation = Guid.NewGuid().ToString("N")[..8];
         var pipeName = PipeName(sid);
@@ -32,8 +36,10 @@ public sealed class ClaudeWakeClient : IWakeClient
             await using var pipe = new NamedPipeClientStream(
                 ".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(500));
-            Log.Verbose("[trace] Claude pipe client {Operation} connecting; timeoutMs=500", operation);
+            var timeoutValue = operationTimeout ?? TimeSpan.FromMilliseconds(500);
+            timeout.CancelAfter(timeoutValue);
+            Log.Verbose("[trace] Claude pipe client {Operation} connecting; timeoutMs={TimeoutMs}",
+                operation, timeoutValue.TotalMilliseconds);
             await pipe.ConnectAsync(timeout.Token);
             connected = true;
             Log.Verbose("[trace] Claude pipe client {Operation} connected after {ElapsedMs}ms", operation, elapsed.ElapsedMilliseconds);
@@ -60,6 +66,8 @@ public sealed class ClaudeWakeClient : IWakeClient
             return connected ? new(WakeStatus.Failed, ex.Message) : new(WakeStatus.Unavailable);
         }
     }
+
+    internal const string RebindPrefix = "@parley/rebind:";
 
     internal static string PipeName(string sid)
     {

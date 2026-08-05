@@ -28,4 +28,5 @@ namespace ParleyCli.Serialization;
 [JsonSerializable(typeof(ClaudeMcpResponse<ClaudeEmptyResult>))]
 [JsonSerializable(typeof(ClaudeMcpErrorResponse))]
 [JsonSerializable(typeof(ClaudeChannelNotification))]
+[JsonSerializable(typeof(ClaudeAgentInfo[]))]
 internal partial class ParleyJsonContext : JsonSerializerContext;

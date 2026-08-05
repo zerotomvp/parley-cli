@@ -122,6 +122,21 @@ internal sealed class CliSandbox : IDisposable
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
+    public void ConfigureClaudeAgents(string json)
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("The fake Claude shell fixture is Unix-only.");
+
+        UpdateClaudeAgents(json);
+        var state = Path.Combine(_store, "claude-agents.json");
+        var path = Path.Combine(_fakeBin, "claude");
+        File.WriteAllText(path, $"#!/bin/sh\nexec /bin/cat '{state}'\n");
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    public void UpdateClaudeAgents(string json) =>
+        File.WriteAllText(Path.Combine(_store, "claude-agents.json"), json);
+
     private static string DotnetHost() =>
         Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
         ?? Environment.ProcessPath

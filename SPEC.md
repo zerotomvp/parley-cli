@@ -17,8 +17,9 @@ For a channel `<channel>`:
   is derived on read rather than stored. Embedded newlines in `text` are JSON-escaped,
   so one physical line remains one record.
 - `<channel>.roster.jsonl` is the append-only role-claim log. Entries contain `ts`,
-  `role`, `sid`, concrete `wake`, and optional `forced`; replaying the log makes the latest claim for
-  each role authoritative.
+  `role`, `sid`, concrete `wake`, and optional `forced`. Claude entries may also carry
+  internal `claudePid`, `claudeStartedAt`, and `previousSid` correlation. Replaying
+  the log makes the latest claim for each role authoritative.
 - `<channel>.<sid>.cursor` records the highest transcript position emitted by the
   CLI to that session. It is diagnostic delivery state, not proof that an agent
   harness placed the output into model context.
@@ -141,6 +142,19 @@ For a recipient registered with `wake: claude`:
 
 Each pipe connection is isolated. A client that disconnects or faults cannot stop
 the channel subprocess from accepting later probes and wakes.
+
+Claude lifecycle transitions can change `CLAUDE_CODE_SESSION_ID` while leaving the
+MCP subprocess alive under its original environment. A successful Claude join
+feature-detects `claude agents --json` and stores the matching `(pid, startedAt)` as
+internal correlation; it never substitutes that process identity for the public SID.
+Discovery is retried only when a membership-checked command finds that its current
+UUID differs from a `wake: claude` owner. Rotation is allowed only when the recorded
+process now reports the caller's UUID. The CLI first asks the old same-user endpoint
+to accept the new pipe name, retaining the old name as an alias, then appends rotation
+claims for every current Claude membership owned by the old SID and copies cursors
+forward. Historical message SIDs are treated as equivalent through the recorded
+rotation chain. If discovery, correlation, or endpoint rebind fails, roster state is
+unchanged and the ordinary ownership error is returned.
 
 For a recipient registered with `wake: codex`:
 

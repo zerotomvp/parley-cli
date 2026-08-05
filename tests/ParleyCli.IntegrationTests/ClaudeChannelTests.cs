@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
 
 namespace ParleyCli.IntegrationTests;
 
@@ -106,6 +107,103 @@ public sealed class ClaudeChannelTests
             await channel.Completion;
         }
     }
+
+    [Fact]
+    public async Task Claude_clear_rotates_memberships_and_rebinds_the_live_endpoint()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        const string oldSid = "old-claude-sid";
+        const string newSid = "new-claude-sid";
+        cli.ConfigureClaudeAgents(AgentsJson(oldSid, pid: 4242, startedAt: 123456));
+
+        var channel = cli.StartInteractive("claude-channel", "--sid", oldSid);
+        try
+        {
+            await InitializeAsync(channel.Process);
+            (await cli.RunAsync("join", "clear-one", "--as", "sender", "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
+            (await cli.RunAsync("join", "clear-one", "--as", "recipient", "--sid", oldSid, "--wake", "claude")).ShouldSucceed();
+            (await cli.RunAsync("join", "clear-two", "--as", "recipient", "--sid", oldSid, "--wake", "claude")).ShouldSucceed();
+
+            (await cli.RunAsync("send", "clear-one", "--as", "sender", "--sid", "sender-sid",
+                "--to", "recipient", "-m", "before clear")).ShouldSucceed();
+            _ = await ReadLineAsync(channel.Process.StandardOutput);
+            (await cli.RunAsync("recv", "clear-one", "--as", "recipient", "--sid", oldSid,
+                "--last-seen", "0")).ShouldSucceed();
+
+            cli.UpdateClaudeAgents(AgentsJson(newSid, pid: 4242, startedAt: 123456));
+            var repaired = await cli.RunAsync("recv", "clear-one", "--as", "recipient", "--sid", newSid,
+                "--last-seen", "1");
+            repaired.ShouldSucceed();
+            Assert.Contains("No new messages", repaired.Stderr);
+            Assert.Equal("1", File.ReadAllText(cli.Cursor("clear-one", newSid)));
+
+            var firstRoster = await cli.RunAsync("who", "clear-one", "--json");
+            var secondRoster = await cli.RunAsync("who", "clear-two", "--json");
+            Assert.Contains(newSid, firstRoster.Stdout);
+            Assert.Contains(newSid, secondRoster.Stdout);
+            Assert.DoesNotContain(oldSid, firstRoster.Stdout);
+
+            var after = await cli.RunAsync("send", "clear-one", "--as", "sender", "--sid", "sender-sid",
+                "--to", "recipient", "-m", "after clear");
+            after.ShouldSucceed();
+            Assert.Contains("woke recipient", after.Stderr);
+            var notice = await ReadLineAsync(channel.Process.StandardOutput);
+            Assert.Contains("Message #2", notice);
+
+            // The old endpoint remains a grace alias, covering a sender that resolved the roster
+            // immediately before rotation while the new SID is already accepting wakes.
+            Assert.Equal("ok", await ProbeAsync(cli.Store, oldSid));
+            Assert.Equal("ok", await ProbeAsync(cli.Store, newSid));
+        }
+        finally
+        {
+            channel.Process.StandardInput.Close();
+            await channel.Completion;
+        }
+    }
+
+    [Fact]
+    public async Task Claude_sid_rotation_rejects_changed_process_identity()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        cli.ConfigureClaudeAgents(AgentsJson("old-sid", pid: 7, startedAt: 100));
+        (await cli.RunAsync("join", "identity", "--as", "recipient", "--sid", "old-sid", "--wake", "claude")).ShouldSucceed();
+
+        cli.UpdateClaudeAgents(AgentsJson("new-sid", pid: 7, startedAt: 101));
+        var rejected = await cli.RunAsync("recv", "identity", "--as", "recipient", "--sid", "new-sid",
+            "--last-seen", "0");
+        Assert.Equal(1, rejected.ExitCode);
+        Assert.Contains("held by a different session", rejected.Stderr);
+    }
+
+    private static async Task InitializeAsync(Process process)
+    {
+        await process.StandardInput.WriteLineAsync(
+            """{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2025-06-18"}}""");
+        await process.StandardInput.FlushAsync();
+        _ = await ReadLineAsync(process.StandardOutput);
+        await process.StandardInput.WriteLineAsync(
+            """{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}""");
+        await process.StandardInput.FlushAsync();
+    }
+
+    private static async Task<string?> ProbeAsync(string home, string sid)
+    {
+        await using var pipe = new NamedPipeClientStream(
+            ".", PipeName(home, sid), PipeDirection.InOut, PipeOptions.Asynchronous);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await pipe.ConnectAsync(timeout.Token);
+        await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true)
+            { AutoFlush = true };
+        using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+        await writer.WriteLineAsync("");
+        return await reader.ReadLineAsync(timeout.Token);
+    }
+
+    private static string AgentsJson(string sid, int pid, long startedAt) =>
+        $$"""[{"pid":{{pid}},"startedAt":{{startedAt}},"sessionId":"{{sid}}"}]""";
 
     private static string PipeName(string home, string sid)
     {

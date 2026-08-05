@@ -40,6 +40,7 @@ public static class JoinCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
             var wakeClients = Cli.Services.GetRequiredService<WakeClientFactory>();
+            var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
@@ -47,7 +48,14 @@ public static class JoinCommand
             var requestedWake = pr.GetValue(wakeOpt)!;
             var wake = ResolveWake(requestedWake);
 
-            var result = store.Join(channel, me.Role, me.Sid, wake, force);
+            ClaudeProcessCorrelation? claudeProcess = null;
+            if (wake == "claude")
+            {
+                await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
+                claudeProcess = await claudeSessions.CaptureAsync(me.Sid, ct);
+            }
+
+            var result = store.Join(channel, me.Role, me.Sid, wake, force, claudeProcess);
             var msg = result switch
             {
                 ChannelStore.JoinResult.AlreadyYours => $"already holds role [blue]{Markup.Escape(me.Role)}[/]",

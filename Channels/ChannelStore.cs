@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
 using ParleyCli.Models;
 using ParleyCli.Serialization;
+using ParleyCli.Integrations;
 
 namespace ParleyCli.Channels;
 
@@ -97,6 +98,23 @@ public class ChannelStore
     public RosterEntryWire? MembershipOf(string channel, string role) =>
         Owners(channel).GetValueOrDefault(role);
 
+    /// <summary>True when two SIDs are the same current session across Claude SID rotations.</summary>
+    public bool IsSameSession(string channel, string firstSid, string secondSid)
+    {
+        if (firstSid == secondSid) return true;
+        var equivalent = new HashSet<string>(StringComparer.Ordinal) { secondSid };
+        var roster = ReadRoster(channel);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var entry in roster)
+                if (entry.PreviousSid is not null && equivalent.Contains(entry.Sid))
+                    changed |= equivalent.Add(entry.PreviousSid);
+        }
+        return equivalent.Contains(firstSid);
+    }
+
     public enum JoinResult { Joined, AlreadyYours, Reclaimed }
 
     /// <summary>
@@ -105,13 +123,31 @@ public class ChannelStore
     /// that restarted under a new sid). Idempotent if this sid already owns it. Best-effort under
     /// concurrency: after appending we re-read and, if we lost a simultaneous claim, report it.
     /// </summary>
-    public JoinResult Join(string channel, string role, string sid, string wake, bool force = false)
+    public JoinResult Join(string channel, string role, string sid, string wake, bool force = false,
+        ClaudeProcessCorrelation? claudeProcess = null)
     {
         Directory.CreateDirectory(ChannelsDir);
         var membership = MembershipOf(channel, role);
         var owner = membership?.Sid;
         var storedWake = membership?.Wake;
-        if (owner == sid && storedWake == wake) return JoinResult.AlreadyYours;
+        if (owner == sid && storedWake == wake)
+        {
+            // A resumed Claude session can keep its UUID while moving to a new OS process. Refresh
+            // the internal correlation on its idempotent join so a later /clear can still prove
+            // that the in-process SID change belongs to this owner.
+            if (wake == "claude" && claudeProcess is not null
+                && (membership?.ClaudePid != claudeProcess.Value.Pid
+                    || membership.ClaudeStartedAt != claudeProcess.Value.StartedAt))
+            {
+                var refresh = new RosterEntryWire(
+                    DateTimeOffset.UtcNow.ToString("o"), role, sid, wake,
+                    ClaudePid: claudeProcess.Value.Pid,
+                    ClaudeStartedAt: claudeProcess.Value.StartedAt);
+                AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
+                    JsonSerializer.Serialize(refresh, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
+            }
+            return JoinResult.AlreadyYours;
+        }
         if (storedWake is not null && storedWake != wake)
             throw new ArgumentException(
                 $"Role '{role}' on channel '{channel}' is permanently registered with --wake {storedWake}. " +
@@ -121,7 +157,9 @@ public class ChannelStore
                 $"Role '{role}' on channel '{channel}' is already held by another session. " +
                 "Pick a different role, or pass --force to take it over (e.g. after a restart).");
 
-        var wire = new RosterEntryWire(DateTimeOffset.UtcNow.ToString("o"), role, sid, wake, force ? true : null);
+        var wire = new RosterEntryWire(
+            DateTimeOffset.UtcNow.ToString("o"), role, sid, wake, force ? true : null,
+            claudeProcess?.Pid, claudeProcess?.StartedAt);
         AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(wire, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
 
@@ -145,6 +183,54 @@ public class ChannelStore
             SetCursor(channel, sid, ReadAll(channel).Count);
 
         return result;
+    }
+
+    /// <summary>
+    /// Rebinds every current Claude membership owned by <paramref name="oldSid"/> to the new
+    /// Claude UUID. The channel process retains both pipe aliases during this migration, so sends
+    /// resolving either roster snapshot have a live endpoint. Cursor state is copied forward before
+    /// each append; the explicit model checkpoint remains authoritative if a stale command races it.
+    /// </summary>
+    public int RotateClaudeSession(string oldSid, string newSid, ClaudeProcessCorrelation process)
+    {
+        Validate("session id", oldSid);
+        Validate("session id", newSid);
+        if (oldSid == newSid) return 0;
+        if (!Directory.Exists(ChannelsDir)) return 0;
+
+        var rotated = 0;
+        foreach (var path in Directory.GetFiles(ChannelsDir, "*.roster.jsonl"))
+        {
+            var file = Path.GetFileName(path);
+            var channel = file[..^".roster.jsonl".Length];
+            foreach (var membership in Owners(channel).Values
+                         .Where(e => e.Sid == oldSid && e.Wake == "claude"))
+            {
+                CopyCursorForward(channel, oldSid, newSid);
+                var wire = new RosterEntryWire(
+                    DateTimeOffset.UtcNow.ToString("o"), membership.Role, newSid, "claude",
+                    ClaudePid: process.Pid, ClaudeStartedAt: process.StartedAt,
+                    PreviousSid: oldSid);
+                AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
+                    JsonSerializer.Serialize(wire, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
+
+                // If a concurrent force claim landed after our append, do not count it as rotated.
+                if (MembershipOf(channel, membership.Role)?.Sid == newSid) rotated++;
+            }
+        }
+        return rotated;
+    }
+
+    private void CopyCursorForward(string channel, string oldSid, string newSid)
+    {
+        var oldValue = GetCursor(channel, oldSid);
+        var newValue = GetCursor(channel, newSid);
+        if (oldValue <= newValue) return;
+        Directory.CreateDirectory(ChannelsDir);
+        var target = CursorPath(channel, newSid);
+        var temp = target + $".{Environment.ProcessId}.tmp";
+        File.WriteAllText(temp, oldValue.ToString());
+        File.Move(temp, target, overwrite: true);
     }
 
     /// <summary>
@@ -175,7 +261,7 @@ public class ChannelStore
             .Select(g => g.Last()) // current owner = latest claim for the role
             .Select(e =>
             {
-                var mine = msgs.Where(m => m.Sid == e.Sid).ToList();
+                var mine = msgs.Where(m => IsSameSession(channel, m.Sid, e.Sid)).ToList();
                 var last = mine.Count > 0 ? mine[^1].Ts : e.Ts;
                 return new Participant(e.Role, e.Sid, e.Wake ?? "never", e.Ts, mine.Count, last);
             })
@@ -203,7 +289,7 @@ public class ChannelStore
         if (expectNew)
         {
             var all = ReadAll(channel);
-            var mine = all.Count(m => m.Sid == sid);
+            var mine = all.Count(m => IsSameSession(channel, m.Sid, sid));
             var maxPerSender = all.GroupBy(m => m.Sid).Select(g => g.Count()).DefaultIfEmpty(0).Max();
             if (mine > 0 || maxPerSender > 1)
                 throw new ArgumentException(
@@ -271,7 +357,8 @@ public class ChannelStore
         while (true)
         {
             var all = ReadAll(channel);
-            if (all.Any(m => m.Sid != mySid && m.Seq > afterSeq && m.IsFor(myRole)))
+            if (all.Any(m => !IsSameSession(channel, m.Sid, mySid)
+                             && m.Seq > afterSeq && m.IsFor(myRole)))
                 return (true, all);
 
             if (timeoutSeconds > 0 && sw.Elapsed.TotalSeconds >= timeoutSeconds)

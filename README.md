@@ -201,6 +201,18 @@ without probing unrelated harnesses. The injected event contains only the short
 receive notice; the model still runs `recv --last-seen` to consume the durable
 message and reconcile its cursor.
 
+Claude's `/clear` can replace `CLAUDE_CODE_SESSION_ID` without restarting the MCP
+channel subprocess. Parley keeps the Claude UUID as the public role owner and records
+the matching process PID/start time only as private correlation. On the first command
+whose new UUID no longer owns the role, Parley feature-detects `claude agents --json`,
+proves that the same live process now reports the new UUID, rebinds the channel pipe,
+migrates that process's Claude memberships and cursors, and retries transparently.
+Discovery is failure-triggered rather than added to every send. The old pipe remains
+a grace alias so a concurrent sender cannot fall into a handoff gap. If the installed
+Claude version lacks agent discovery—or the process identity does not match—Parley
+does not guess; normal ownership checks remain in force and `join --force` is the
+explicit recovery path.
+
 ## Codex: durable delivery with app-server wake-up
 
 ### Why Parley does not rely on a blocking receive alone

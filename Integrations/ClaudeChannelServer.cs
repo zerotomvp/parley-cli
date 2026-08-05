@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using ParleyCli.Serialization;
 using Serilog;
+using System.Collections.Concurrent;
+using ParleyCli.Channels;
 
 namespace ParleyCli.Integrations;
 
@@ -17,6 +19,7 @@ public sealed class ClaudeChannelServer
 
     private readonly SemaphoreSlim _stdout = new(1, 1);
     private readonly TaskCompletionSource _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ConcurrentDictionary<string, Task> _pipeAliases = new(StringComparer.Ordinal);
 
     public async Task RunAsync(string sid, CancellationToken ct)
     {
@@ -41,7 +44,8 @@ public sealed class ClaudeChannelServer
         finally
         {
             stop.Cancel();
-            try { await Task.WhenAll(mcp, pipe); } catch (OperationCanceledException) { }
+            try { await Task.WhenAll(_pipeAliases.Values.Append(mcp).Append(pipe)); }
+            catch (OperationCanceledException) { }
             Log.Verbose("[trace] Claude channel server stopped; sid={Sid}", sid);
         }
     }
@@ -118,6 +122,15 @@ public sealed class ClaudeChannelServer
                 await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true)
                     { AutoFlush = true };
                 var notification = await reader.ReadLineAsync(ct);
+                if (notification?.StartsWith(ClaudeWakeClient.RebindPrefix, StringComparison.Ordinal) == true)
+                {
+                    var newSid = ChannelStore.Validate("session id",
+                        notification[ClaudeWakeClient.RebindPrefix.Length..]);
+                    await EnsurePipeAliasAsync(newSid, ct);
+                    await writer.WriteLineAsync("ok");
+                    Log.Verbose("[trace] Claude pipe endpoint rebound; oldSid={OldSid} newSid={NewSid}", sid, newSid);
+                    continue;
+                }
                 var kind = string.IsNullOrEmpty(notification) ? "probe" : "wake";
                 Log.Verbose("[trace] Claude pipe server instance {Instance} received {Kind}; notificationLength={NotificationLength} initialized={Initialized}",
                     current, kind, notification?.Length ?? 0, _initialized.Task.IsCompleted);
@@ -147,6 +160,23 @@ public sealed class ClaudeChannelServer
             }
         }
         Log.Verbose("[trace] Claude pipe server loop cancelled; sid={Sid}", sid);
+    }
+
+    private async Task EnsurePipeAliasAsync(string sid, CancellationToken ct)
+    {
+        if (_pipeAliases.ContainsKey(sid)) return;
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var task = RunPipeAliasAsync(sid, ready, ct);
+        if (!_pipeAliases.TryAdd(sid, task)) return;
+        await ready.Task.WaitAsync(ct);
+    }
+
+    private async Task RunPipeAliasAsync(string sid, TaskCompletionSource ready, CancellationToken ct)
+    {
+        // Signal only once the loop has begun. A connecting client can safely race creation: the
+        // named-pipe client waits until the first server instance is listening.
+        ready.TrySetResult();
+        await RunPipeAsync(sid, ct);
     }
 
     private async Task WriteAsync<T>(T value, CancellationToken ct)

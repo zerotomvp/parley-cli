@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
+using ParleyCli.Integrations;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -29,10 +30,11 @@ public static class DropCommand
             channelArg, forceOpt, yesOpt
         };
 
-        command.SetAction(Safe((pr, ct) =>
+        command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
+            var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var force = pr.GetValue(forceOpt);
@@ -42,7 +44,7 @@ public static class DropCommand
             if (all.Count == 0)
             {
                 Stderr.MarkupLine($"[grey]Channel '{Markup.Escape(channel)}' has no messages to drop.[/]");
-                return Task.FromResult(0);
+                return 0;
             }
 
             var last = all[^1];
@@ -51,12 +53,13 @@ public static class DropCommand
             if (!force)
             {
                 var me = ResolveIdentity(pr); // requires --as
-                if (last.Sid != me.Sid)
+                await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
+                if (!store.IsSameSession(channel, last.Sid, me.Sid))
                 {
                     Stderr.MarkupLine(
                         $"[red]Error:[/] the last message [blue]#{last.Seq}[/] is from [blue]{Markup.Escape(last.From)}[/], not you. " +
                         "You can only drop your own last message; a human operator can override with [blue]--force[/].");
-                    return Task.FromResult(1);
+                    return 1;
                 }
             }
 
@@ -68,19 +71,19 @@ public static class DropCommand
                 if (Console.IsInputRedirected)
                 {
                     Stderr.MarkupLine("[red]Error:[/] Confirmation needs a terminal. Re-run with [blue]--yes[/] to drop non-interactively.");
-                    return Task.FromResult(1);
+                    return 1;
                 }
                 if (!Stderr.Prompt(new ConfirmationPrompt("Remove it?") { DefaultValue = false }))
                 {
                     Stderr.MarkupLine("[yellow]Cancelled.[/]");
-                    return Task.FromResult(0);
+                    return 0;
                 }
             }
 
             var popped = store.Pop(channel, last.Seq);
             var newMax = popped.Seq - 1;
             Stderr.MarkupLine($"[green]✓[/] removed [blue]#{popped.Seq}[/]; cursors past [blue]#{newMax}[/] rolled back.");
-            return Task.FromResult(0);
+            return 0;
         }));
 
         return command;

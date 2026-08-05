@@ -69,6 +69,7 @@ public static class SendCommand
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
             var wakeClients = Cli.Services.GetRequiredService<WakeClientFactory>();
+            var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
@@ -79,6 +80,7 @@ public static class SendCommand
             var json = pr.GetValue(jsonOpt);
             var ackSeq = pr.GetValue(ackOpt);
             // Must have joined as this role from this session before sending.
+            await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
             store.VerifyMembership(channel, me.Role, me.Sid);
 
             var broadcast = pr.GetValue(broadcastOpt);
@@ -118,7 +120,7 @@ public static class SendCommand
                     Stderr.MarkupLine($"[red]Error:[/] message #{ackSeq} does not exist on {Markup.Escape(channel)}.");
                     return 1;
                 }
-                if (acknowledged.Sid == me.Sid || !acknowledged.IsFor(me.Role))
+                if (store.IsSameSession(channel, acknowledged.Sid, me.Sid) || !acknowledged.IsFor(me.Role))
                 {
                     Stderr.MarkupLine($"[red]Error:[/] message #{ackSeq} is not a peer message addressed to role {Markup.Escape(me.Role)}.");
                     return 1;
@@ -197,7 +199,8 @@ public static class SendCommand
             }
 
             var cursor = store.GetCursor(channel, me.Sid);
-            var unread = snapshot.Where(m => m.Seq > cursor && m.Sid != me.Sid && m.IsFor(me.Role)).ToList();
+            var unread = snapshot.Where(m => m.Seq > cursor
+                && !store.IsSameSession(channel, m.Sid, me.Sid) && m.IsFor(me.Role)).ToList();
             PrintMessages(unread, json);
             store.SetCursor(channel, me.Sid, snapshot[^1].Seq);
             NoteIfClosed(unread);

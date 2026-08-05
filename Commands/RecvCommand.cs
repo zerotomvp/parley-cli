@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using ParleyCli.Channels;
+using ParleyCli.Integrations;
 using Spectre.Console;
 using static ParleyCli.Commands.CommandHelpers;
 
@@ -44,6 +45,7 @@ public static class RecvCommand
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
+            var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
 
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
@@ -59,6 +61,7 @@ public static class RecvCommand
             }
 
             // Must have joined as this role from this session before receiving.
+            await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
             store.VerifyMembership(channel, me.Role, me.Sid);
 
             var snapshot = store.ReadAll(channel);
@@ -72,7 +75,8 @@ public static class RecvCommand
             if (lastSeen < emittedThrough)
                 Stderr.MarkupLine($"[yellow]Note:[/] replaying from model checkpoint [blue]{lastSeen}[/]; this CLI previously emitted through [blue]{emittedThrough}[/].");
 
-            var unread = snapshot.Where(m => m.Seq > lastSeen && m.Sid != me.Sid && m.IsFor(me.Role)).ToList();
+            var unread = snapshot.Where(m => m.Seq > lastSeen
+                && !store.IsSameSession(channel, m.Sid, me.Sid) && m.IsFor(me.Role)).ToList();
 
             if (unread.Count == 0 && wait)
             {
@@ -87,7 +91,8 @@ public static class RecvCommand
                     return 2; // timeout: nothing yet
                 }
                 snapshot = waited;
-                unread = snapshot.Where(m => m.Seq > lastSeen && m.Sid != me.Sid && m.IsFor(me.Role)).ToList();
+                unread = snapshot.Where(m => m.Seq > lastSeen
+                    && !store.IsSameSession(channel, m.Sid, me.Sid) && m.IsFor(me.Role)).ToList();
             }
 
             if (unread.Count == 0)
