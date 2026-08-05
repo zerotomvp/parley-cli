@@ -378,7 +378,8 @@ automatic wake is available. Send with:
 
 Always pass the highest sequence actually present in your context as --last-seen
 (0 if none); a synthetic wake notice does not count as seeing its message. Do not
-resend after a timeout or reply to a [closed] exchange.
+modify a wake notice's receive command with `--wait` or `&`, resend after a timeout,
+or reply to a [closed] exchange.
 ```
 
 The persistence schema, delivery invariants, append semantics, and Codex app-server

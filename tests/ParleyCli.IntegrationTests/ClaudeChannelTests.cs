@@ -52,7 +52,10 @@ public sealed class ClaudeChannelTests
             var content = notification.RootElement.GetProperty("params").GetProperty("content").GetString();
             Assert.Contains("[Parley] Message #1", content);
             Assert.Contains("parley recv claude-wake --as recipient --last-seen", content);
-            Assert.DoesNotContain("--wait", content);
+            Assert.Contains("Run exactly one nonblocking receive in the foreground", content);
+            Assert.Contains("do not add --wait", content);
+            Assert.Contains("do not append &", content);
+            Assert.Contains("do not start a persistent listener", content);
 
             var sentAgain = await cli.RunAsync("send", "claude-wake", "--as", "sender", "--sid", "sender-sid",
                 "--to", "recipient", "-m", "One more request.");

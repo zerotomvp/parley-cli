@@ -173,8 +173,11 @@ For a recipient registered with `wake: codex`:
 
 The wake transport factory constructs only the transport named by the recipient's
 roster entry. `wake: never` performs no notification. The injected text is only a
-notice directing the recipient to run `parley recv` with the
-correct channel, role, and model checkpoint. The actual message body remains solely
+notice directing the recipient to run one nonblocking foreground `parley recv`. It
+explicitly prohibits adding `--wait`, appending `&`, or starting a persistent listener
+because those forms can advance a cursor without returning output to model context.
+The notice includes the correct channel, role, and model checkpoint. The actual
+message body remains solely
 in the durable transcript. A missing Claude channel, Codex executable, stopped
 daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
 non-fatal unavailable-endpoint note. A failure after a live Claude connection or
