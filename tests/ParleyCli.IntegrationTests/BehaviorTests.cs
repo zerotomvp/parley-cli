@@ -102,6 +102,29 @@ public sealed class BehaviorTests
     }
 
     [Fact]
+    public async Task Receive_footer_follows_the_persisted_wake_mode()
+    {
+        using var cli = new CliSandbox();
+        (await cli.RunAsync("join", "footer", "--as", "sender", "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
+        (await cli.RunAsync("join", "footer", "--as", "manual", "--sid", "manual-sid", "--wake", "never")).ShouldSucceed();
+        (await cli.RunAsync("join", "footer", "--as", "automatic", "--sid", "automatic-sid", "--wake", "claude")).ShouldSucceed();
+        (await cli.RunAsync("send", "footer", "--as", "sender", "--sid", "sender-sid",
+            "--broadcast", "-m", "footer test")).ShouldSucceed();
+
+        var manual = await cli.RunAsync("recv", "footer", "--as", "manual", "--sid", "manual-sid", "--last-seen", "0");
+        manual.ShouldSucceed();
+        var manualStatus = Regex.Replace(manual.Stderr, @"\s+", " ");
+        Assert.Contains("Checkpoint: 1 · foreground only: parley recv footer --as manual --last-seen 1 --wait", manualStatus);
+
+        var automatic = await cli.RunAsync("recv", "footer", "--as", "automatic", "--sid", "automatic-sid", "--last-seen", "0");
+        automatic.ShouldSucceed();
+        var automaticStatus = Regex.Replace(automatic.Stderr, @"\s+", " ");
+        Assert.Contains("Checkpoint: 1 · await wake; do not start a listener.", automaticStatus);
+        Assert.DoesNotContain("--wait", automaticStatus);
+        Assert.DoesNotContain("message(s) from other session(s)", automaticStatus);
+    }
+
+    [Fact]
     public async Task Last_seen_is_required_and_replays_behind_the_cli_cursor()
     {
         using var cli = new CliSandbox();

@@ -104,9 +104,11 @@ public static class RecvCommand
             PrintMessages(unread, json);
             store.SetCursor(channel, me.Sid, Math.Max(emittedThrough, snapshot[^1].Seq));
             var checkpoint = unread[^1].Seq;
-            Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint}");
-            Stderr.MarkupLine($"[grey]Next receive: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
-            Stderr.MarkupLine($"[green]✓[/] {unread.Count} message(s) from other session(s)");
+            var wake = store.MembershipOf(channel, me.Role)?.Wake ?? "never";
+            if (wake == "never")
+                Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint} [grey]· foreground only: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
+            else
+                Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint} [grey]· await wake; do not start a listener.[/]");
             NoteIfClosed(unread);
             return 0;
         }));

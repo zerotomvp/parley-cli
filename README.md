@@ -380,6 +380,10 @@ Always pass the highest sequence actually present in your context as --last-seen
 (0 if none); a synthetic wake notice does not count as seeing its message. Do not
 modify a wake notice's receive command with `--wait` or `&`, resend after a timeout,
 or reply to a [closed] exchange.
+
+After receiving, Parley prints one compact checkpoint footer. Automatically woken
+roles are told to await the next notice and never receive a listener command; only
+`wake=never` roles receive an explicitly foreground `recv --wait` recovery command.
 ```
 
 The persistence schema, delivery invariants, append semantics, and Codex app-server

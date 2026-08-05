@@ -189,6 +189,11 @@ availability as separate facts before printing operating guidance. Its probe res
 informational; send later attempts the role's stored transport directly. A fallback
 receive must remain a foreground blocking listener so its output reaches model context.
 
+A successful `recv` emits one checkpoint footer. For `wake: claude` and `wake: codex`
+it says only to await the next wake and forbids a listener. For `wake: never`, it
+includes the next `recv --wait` command marked foreground-only. It does not emit a
+redundant message-count success line.
+
 ## Administrative behavior
 
 `log` and `show` inspect transcript data without touching cursors. `log` defaults to

@@ -50,12 +50,10 @@ public sealed class ClaudeChannelTests
             Assert.Equal("notifications/claude/channel",
                 notification.RootElement.GetProperty("method").GetString());
             var content = notification.RootElement.GetProperty("params").GetProperty("content").GetString();
-            Assert.Contains("[Parley] Message #1", content);
+            Assert.Contains("[Parley #1 pending · claude-wake · recipient]", content);
             Assert.Contains("parley recv claude-wake --as recipient --last-seen", content);
-            Assert.Contains("Run exactly one nonblocking receive in the foreground", content);
-            Assert.Contains("do not add --wait", content);
-            Assert.Contains("do not append &", content);
-            Assert.Contains("do not start a persistent listener", content);
+            Assert.Contains("One foreground receive only—no --wait, &, or listener", content);
+            Assert.Contains("Notice does not mark #1 seen", content);
 
             var sentAgain = await cli.RunAsync("send", "claude-wake", "--as", "sender", "--sid", "sender-sid",
                 "--to", "recipient", "-m", "One more request.");
@@ -63,7 +61,7 @@ public sealed class ClaudeChannelTests
             Assert.Contains("woke recipient through Claude Code channel", sentAgain.Stderr);
             var secondNotice = await ReadLineAsync(channel.Process.StandardOutput);
             using var secondNotification = JsonDocument.Parse(secondNotice);
-            Assert.Contains("Message #2", secondNotification.RootElement
+            Assert.Contains("[Parley #2 pending", secondNotification.RootElement
                 .GetProperty("params").GetProperty("content").GetString());
         }
         finally
@@ -181,7 +179,7 @@ public sealed class ClaudeChannelTests
             after.ShouldSucceed();
             Assert.Contains("woke recipient", after.Stderr);
             var notice = await ReadLineAsync(channel.Process.StandardOutput);
-            Assert.Contains("Message #2", notice);
+            Assert.Contains("[Parley #2 pending", notice);
 
             // The old endpoint remains a grace alias, covering a sender that resolved the roster
             // immediately before rotation while the new SID is already accepting wakes.
