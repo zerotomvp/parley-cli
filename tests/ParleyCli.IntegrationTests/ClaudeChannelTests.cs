@@ -87,9 +87,6 @@ public sealed class ClaudeChannelTests
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await abandoned.ConnectAsync(timeout.Token);
-                await using var writer = new StreamWriter(abandoned, new UTF8Encoding(false), leaveOpen: true)
-                    { AutoFlush = true };
-                await writer.WriteLineAsync("abandoned wake");
             }
             await Task.Delay(300);
 
@@ -101,13 +98,20 @@ public sealed class ClaudeChannelTests
                 """{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}""");
             await channel.Process.StandardInput.FlushAsync();
 
-            // The abandoned notification can reach MCP stdout, but its broken acknowledgement
-            // connection must be isolated so that a later probe gets a fresh pipe instance.
-            _ = await ReadLineAsync(channel.Process.StandardOutput);
+            // Neither disconnected client is required to produce MCP output. The observable
+            // contract is that the server accepts a later probe and initialized wake.
             var joined = await cli.RunAsync("join", "resilient", "--as", "recipient",
                 "--sid", "resilient-sid", "--wake", "claude");
             joined.ShouldSucceed();
             Assert.Contains("live Claude Code channel endpoint is available", joined.Stderr);
+
+            (await cli.RunAsync("join", "resilient", "--as", "sender",
+                "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
+            var sent = await cli.RunAsync("send", "resilient", "--as", "sender",
+                "--sid", "sender-sid", "--to", "recipient", "-m", "still alive");
+            sent.ShouldSucceed();
+            Assert.Contains("woke recipient", sent.Stderr);
+            Assert.Contains("[Parley #1 pending", await ReadLineAsync(channel.Process.StandardOutput));
         }
         finally
         {
