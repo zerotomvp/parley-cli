@@ -3,6 +3,12 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.1.2] - 2026-08-05
+
+### Bug fixes
+
+- recover wake after pre-join clear ([`77500f5`](https://github.com/zerotomvp/parley-cli/commit/77500f5ff9610b85b34652516d381d7bed238c72))
+
 ## [1.1.1] - 2026-08-05
 
 ### Features
@@ -88,3 +94,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.0.0]: https://github.com/zerotomvp/parley-cli/commits/v1.0.0
 [1.1.0]: https://github.com/zerotomvp/parley-cli/compare/v1.0.0...v1.1.0
 [1.1.1]: https://github.com/zerotomvp/parley-cli/compare/v1.1.0...v1.1.1
+[1.1.2]: https://github.com/zerotomvp/parley-cli/compare/v1.1.1...v1.1.2
