@@ -152,6 +152,12 @@ Claude lifecycle transitions can change `CLAUDE_CODE_SESSION_ID` while leaving t
 MCP subprocess alive under its original environment. A successful Claude join
 feature-detects `claude agents --json` and stores the matching `(pid, startedAt)` as
 internal correlation; it never substitutes that process identity for the public SID.
+At startup the MCP subprocess also writes an atomic, channelless runtime registration
+mapping that process correlation to its live endpoint SID. The registration creates
+no role, transcript, or cursor state. It is removed on clean shutdown; startup sweeps
+malformed registrations and entries whose exact PID/start-time pair is no longer
+reported by Claude. A registration is only a discovery hint: endpoint acknowledgement
+is required before it can affect a role.
 Discovery is retried only when a membership-checked command finds that its current
 UUID differs from a `wake: claude` owner. Rotation is allowed only when the recorded
 process now reports the caller's UUID. The CLI first asks the old same-user endpoint
@@ -160,6 +166,12 @@ claims for every current Claude membership owned by the old SID and copies curso
 forward. Historical message SIDs are treated as equivalent through the recorded
 rotation chain. If discovery, correlation, or endpoint rebind fails, roster state is
 unchanged and the ordinary ownership error is returned.
+
+If `/clear` precedes the first join on a new channel, there is no old membership from
+which to recover the endpoint SID. Claude join first probes the current SID, then—only
+on failure—looks up the exact process registration and asks that registered endpoint
+to accept the current SID as an alias. The registration is updated after acknowledgement
+and the new-channel membership is written under the current Claude UUID.
 
 For a recipient registered with `wake: codex`:
 

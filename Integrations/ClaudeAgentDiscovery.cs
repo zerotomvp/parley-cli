@@ -15,12 +15,14 @@ public sealed class ClaudeAgentDiscovery
             {
                 FileName = "claude",
                 ArgumentList = { "agents", "--json" },
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             });
             if (process is null) return null;
+            process.StandardInput.Close();
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(2));

@@ -10,7 +10,7 @@ using ParleyCli.Channels;
 namespace ParleyCli.Integrations;
 
 /// <summary>A minimal one-way Claude Code MCP channel server over stdio.</summary>
-public sealed class ClaudeChannelServer
+public sealed class ClaudeChannelServer(ClaudeEndpointRegistry endpointRegistry)
 {
     private const string Instructions =
         "Parley events are wake notices for durable agent-to-agent messages. " +
@@ -27,6 +27,7 @@ public sealed class ClaudeChannelServer
         Log.Verbose("[trace] Claude channel server starting; sid={Sid} pipe={Pipe}", sid, pipeName);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var pipe = RunPipeAsync(sid, stop.Token);
+        var registration = endpointRegistry.RegisterAsync(sid, stop.Token);
         var mcp = RunMcpAsync(stop.Token);
         var completed = await Task.WhenAny(mcp, pipe);
         Log.Verbose("[trace] Claude channel server component completed; component={Component} status={Status}",
@@ -44,8 +45,12 @@ public sealed class ClaudeChannelServer
         finally
         {
             stop.Cancel();
+            ClaudeEndpointRegistrationHandle? registrationHandle = null;
+            try { registrationHandle = await registration; }
+            catch (OperationCanceledException) { }
             try { await Task.WhenAll(_pipeAliases.Values.Append(mcp).Append(pipe)); }
             catch (OperationCanceledException) { }
+            registrationHandle?.Dispose();
             Log.Verbose("[trace] Claude channel server stopped; sid={Sid}", sid);
         }
     }

@@ -206,7 +206,8 @@ claude --dangerously-load-development-channels server:another-channel server:par
 ```
 
 Claude Code starts `parley claude-channel` as a stdio subprocess. It registers a
-same-user named pipe keyed by `CLAUDE_CODE_SESSION_ID`. `join --wake detect` records
+same-user named pipe keyed by `CLAUDE_CODE_SESSION_ID` and announces that endpoint
+under a private, process-correlated runtime registration. `join --wake detect` records
 `claude` for the role; each send to that role connects directly to this endpoint
 without probing unrelated harnesses. The injected event contains only the short
 receive notice; the model still runs `recv --last-seen` to consume the durable
@@ -217,12 +218,16 @@ channel subprocess. Parley keeps the Claude UUID as the public role owner and re
 the matching process PID/start time only as private correlation. On the first command
 whose new UUID no longer owns the role, Parley feature-detects `claude agents --json`,
 proves that the same live process now reports the new UUID, rebinds the channel pipe,
-migrates that process's Claude memberships and cursors, and retries transparently.
-Discovery is failure-triggered rather than added to every send. The old pipe remains
-a grace alias so a concurrent sender cannot fall into a handoff gap. If the installed
-Claude version lacks agent discovery—or the process identity does not match—Parley
-does not guess; normal ownership checks remain in force and `join --force` is the
-explicit recovery path.
+migrates that process's Claude memberships and cursors, and retries transparently. If
+`/clear` happens before the session first joins a new channel, `join` uses the process
+registration to find the surviving endpoint and establish the new UUID alias before
+recording the role. Discovery is limited to channel startup, Claude join, and failure
+recovery rather than added to every send. The old pipe remains a grace alias so a
+concurrent sender cannot fall into a handoff gap. Stale registrations are rejected by
+PID/start-time correlation, pruned opportunistically, and removed on clean channel
+shutdown. If the installed Claude version lacks agent discovery—or the process
+identity does not match—Parley does not guess; normal ownership checks remain in
+force and `join --force` is the explicit recovery path.
 
 ## Codex: durable delivery with app-server wake-up
 

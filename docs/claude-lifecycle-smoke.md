@@ -24,7 +24,11 @@ an interactive Claude session.
 5. Confirm the trace contains a successful endpoint rebind and membership rotation,
    then send once more to verify the new endpoint. Repeat around `/compact` and a
    resumed session; an idempotent `join` after resume refreshes process correlation.
-6. As a distinct negative case, start Claude without loading the Parley channel.
+6. Start another fresh channel server, run `/clear` before joining any Parley channel,
+   then join a newly named channel. Confirm that `join` reports a live endpoint and an
+   addressed send wakes Claude. The trace must show recovery through the process
+   registration even though no old roster membership exists.
+7. As a distinct negative case, start Claude without loading the Parley channel.
    `join` must report a configured wake type but unavailable live endpoint, and a send
    must remain durable while printing the foreground-listener recovery instruction.
 

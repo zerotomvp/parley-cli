@@ -49,10 +49,12 @@ public static class JoinCommand
             var wake = ResolveWake(requestedWake);
 
             ClaudeProcessCorrelation? claudeProcess = null;
+            WakeResult? claudeEndpoint = null;
             if (wake == "claude")
             {
                 await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
                 claudeProcess = await claudeSessions.CaptureAsync(me.Sid, ct);
+                claudeEndpoint = await claudeSessions.EnsureEndpointAsync(me.Sid, claudeProcess, ct);
             }
 
             var result = store.Join(channel, me.Role, me.Sid, wake, force, claudeProcess);
@@ -73,7 +75,7 @@ public static class JoinCommand
             var wakeClient = wakeClients.Create(wake);
             if (wakeClient is not null)
             {
-                var probe = await wakeClient.ProbeAsync(me.Sid, ct);
+                var probe = claudeEndpoint ?? await wakeClient.ProbeAsync(me.Sid, ct);
                 if (probe.Status == WakeStatus.Woken)
                 {
                     Stderr.MarkupLine($"[green]✓[/] live {Markup.Escape(wakeClient.TransportName)} endpoint is available for this {(wakeClient is CodexWakeClient ? "thread" : "session")}");

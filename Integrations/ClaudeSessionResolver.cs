@@ -10,7 +10,8 @@ namespace ParleyCli.Integrations;
 public sealed class ClaudeSessionResolver(
     ChannelStore store,
     ClaudeAgentDiscovery discovery,
-    ClaudeWakeClient wakeClient)
+    ClaudeWakeClient wakeClient,
+    ClaudeEndpointRegistry endpointRegistry)
 {
     public async Task<ClaudeProcessCorrelation?> CaptureAsync(string sid, CancellationToken ct)
     {
@@ -52,6 +53,36 @@ public sealed class ClaudeSessionResolver(
         Log.Information("Rebound Claude session after lifecycle transition; oldSid={OldSid} newSid={NewSid} memberships={Memberships}",
             membership.Sid, currentSid, rotated);
         return rotated > 0;
+    }
+
+    /// <summary>
+    /// Ensures the current public Claude UUID reaches the already-running channel endpoint. The
+    /// registration fallback is used only when direct SID probing fails, covering /clear before a
+    /// first join where no conversation membership can reveal the endpoint's previous SID.
+    /// </summary>
+    public async Task<WakeResult> EnsureEndpointAsync(
+        string currentSid, ClaudeProcessCorrelation? process, CancellationToken ct)
+    {
+        var direct = await wakeClient.ProbeAsync(currentSid, ct);
+        if (direct.Status == WakeStatus.Woken || process is null) return direct;
+
+        var registration = endpointRegistry.Find(process.Value);
+        if (registration is null || registration.EndpointSid == currentSid) return direct;
+
+        Log.Verbose("[trace] Claude endpoint recovery attempting registered SID; registeredSid={RegisteredSid} currentSid={CurrentSid} claudePid={ClaudePid} claudeStartedAt={ClaudeStartedAt}",
+            registration.EndpointSid, currentSid, process.Value.Pid, process.Value.StartedAt);
+        var rebound = await wakeClient.RebindAsync(registration.EndpointSid, currentSid, ct);
+        if (rebound.Status == WakeStatus.Woken)
+        {
+            endpointRegistry.UpdateEndpoint(registration, currentSid);
+            Log.Information("Rebound Claude endpoint before first channel join; oldSid={OldSid} newSid={NewSid}",
+                registration.EndpointSid, currentSid);
+            return rebound;
+        }
+
+        if (rebound.Status == WakeStatus.Unavailable)
+            endpointRegistry.Remove(registration);
+        return rebound;
     }
 }
 

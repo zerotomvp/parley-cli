@@ -108,7 +108,7 @@ public static class RecvCommand
             if (wake == "never")
                 Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint} [grey]· foreground only: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint} --wait[/]");
             else
-                Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint} [grey]· await wake; do not start a listener.[/]");
+                Stderr.MarkupLine($"[cyan]Checkpoint:[/] {checkpoint}");
             NoteIfClosed(unread);
             return 0;
         }));

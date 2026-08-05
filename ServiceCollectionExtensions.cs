@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CodexWakeClient>();
         services.AddSingleton<ClaudeWakeClient>();
         services.AddSingleton<ClaudeAgentDiscovery>();
+        services.AddSingleton<ClaudeEndpointRegistry>();
         services.AddSingleton<ClaudeSessionResolver>();
         services.AddSingleton<WakeClientFactory>();
         services.AddSingleton<ClaudeChannelServer>();

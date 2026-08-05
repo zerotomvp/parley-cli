@@ -119,7 +119,8 @@ public sealed class BehaviorTests
         var automatic = await cli.RunAsync("recv", "footer", "--as", "automatic", "--sid", "automatic-sid", "--last-seen", "0");
         automatic.ShouldSucceed();
         var automaticStatus = Regex.Replace(automatic.Stderr, @"\s+", " ");
-        Assert.Contains("Checkpoint: 1 · await wake; do not start a listener.", automaticStatus);
+        Assert.Contains("Checkpoint: 1", automaticStatus);
+        Assert.DoesNotContain("await wake", automaticStatus);
         Assert.DoesNotContain("--wait", automaticStatus);
         Assert.DoesNotContain("message(s) from other session(s)", automaticStatus);
     }

@@ -198,6 +198,85 @@ public sealed class ClaudeChannelTests
     }
 
     [Fact]
+    public async Task Claude_clear_before_first_join_recovers_endpoint_from_process_registration()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        const string oldSid = "pre-clear-sid";
+        const string newSid = "post-clear-sid";
+        const int claudePid = 4242;
+        const long claudeStartedAt = 123456;
+        cli.ConfigureClaudeAgents(AgentsJson(oldSid, claudePid, claudeStartedAt));
+
+        var channel = cli.StartInteractive("claude-channel", "--sid", oldSid);
+        var registration = cli.ClaudeEndpointRegistration(claudePid, claudeStartedAt);
+        try
+        {
+            await InitializeAsync(channel.Process);
+            await WaitForFileAsync(registration);
+
+            // /clear changes Claude's public UUID before this role has ever joined a Parley
+            // conversation. There is therefore no old roster membership to drive SID repair.
+            cli.UpdateClaudeAgents(AgentsJson(newSid, claudePid, claudeStartedAt));
+            (await cli.RunAsync("join", "post-clear-new-channel", "--as", "sender",
+                "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
+            var joined = await cli.RunAsync("join", "post-clear-new-channel", "--as", "recipient",
+                "--sid", newSid, "--wake", "claude");
+            joined.ShouldSucceed();
+            Assert.Contains("live Claude Code channel endpoint is available", joined.Stderr);
+
+            var sent = await cli.RunAsync("send", "post-clear-new-channel", "--as", "sender",
+                "--sid", "sender-sid", "--to", "recipient", "-m", "after pre-join clear");
+            sent.ShouldSucceed();
+            Assert.Contains("woke recipient", sent.Stderr);
+            var notice = await ReadLineAsync(channel.Process.StandardOutput);
+            Assert.Contains("[Parley #1 pending", notice);
+            Assert.Contains("post-clear-new-channel", notice);
+
+            var registered = JsonDocument.Parse(await File.ReadAllTextAsync(registration));
+            Assert.Equal(newSid, registered.RootElement.GetProperty("endpointSid").GetString());
+        }
+        finally
+        {
+            channel.Process.StandardInput.Close();
+            await channel.Completion;
+        }
+
+        Assert.False(File.Exists(registration),
+            "The channel server should remove only its own process registration on shutdown.");
+    }
+
+    [Fact]
+    public async Task Claude_channel_startup_prunes_stale_and_malformed_registrations()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        const string sid = "live-sid";
+        cli.ConfigureClaudeAgents(AgentsJson(sid, pid: 42, startedAt: 100));
+        var stale = cli.ClaudeEndpointRegistration(pid: 41, startedAt: 99);
+        var malformed = cli.ClaudeEndpointRegistration(pid: 40, startedAt: 98);
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        await File.WriteAllTextAsync(stale,
+            """{"registrationId":"stale","claudePid":41,"claudeStartedAt":99,"endpointSid":"old","channelServerPid":1,"registeredAt":"old"}""");
+        await File.WriteAllTextAsync(malformed, "not json");
+
+        var channel = cli.StartInteractive("claude-channel", "--sid", sid);
+        var current = cli.ClaudeEndpointRegistration(pid: 42, startedAt: 100);
+        try
+        {
+            await InitializeAsync(channel.Process);
+            await WaitForFileAsync(current);
+            Assert.False(File.Exists(stale));
+            Assert.False(File.Exists(malformed));
+        }
+        finally
+        {
+            channel.Process.StandardInput.Close();
+            await channel.Completion;
+        }
+    }
+
+    [Fact]
     public async Task Claude_sid_rotation_rejects_changed_process_identity()
     {
         if (OperatingSystem.IsWindows()) return;
@@ -254,6 +333,13 @@ public sealed class ClaudeChannelTests
         await process.StandardInput.WriteLineAsync(
             """{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}""");
         await process.StandardInput.FlushAsync();
+    }
+
+    private static async Task WaitForFileAsync(string path)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!File.Exists(path))
+            await Task.Delay(20, timeout.Token);
     }
 
     private static async Task<string?> ProbeAsync(string home, string sid)

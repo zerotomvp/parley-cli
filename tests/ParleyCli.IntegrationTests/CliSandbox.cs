@@ -98,6 +98,9 @@ internal sealed class CliSandbox : IDisposable
     public string Cursor(string channel, string sid) =>
         Path.Combine(_store, "channels", $"{channel}.{sid}.cursor");
 
+    public string ClaudeEndpointRegistration(int pid, long startedAt) =>
+        Path.Combine(_store, "runtime", "claude", $"{pid}-{startedAt}.json");
+
     public void Dispose()
     {
         if (Directory.Exists(_store)) Directory.Delete(_store, recursive: true);
