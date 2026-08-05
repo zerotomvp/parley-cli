@@ -3,6 +3,27 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.1.1] - 2026-08-05
+
+### Features
+
+- add opt-in Claude wake tracing ([`81e4c71`](https://github.com/zerotomvp/parley-cli/commit/81e4c7174761cf99d221841f9d0b60cd4016e40c))
+- add wait-for-join command ([`f54de23`](https://github.com/zerotomvp/parley-cli/commit/f54de23fed1558b1f4d179e81328761503d9b86c))
+
+### Bug fixes
+
+- harden channel wake lifecycle ([`430475f`](https://github.com/zerotomvp/parley-cli/commit/430475f1a417ebe9b6c62064218949235c58824e))
+- report transport availability clearly ([`85f08bb`](https://github.com/zerotomvp/parley-cli/commit/85f08bb9f03fa203b0e5b1cfc9460605256f163c))
+- recover session identity after clear ([`8b74540`](https://github.com/zerotomvp/parley-cli/commit/8b74540677da29fe956d0a0739868026b8e0f31f))
+- pin locally packed tool version ([`b29d799`](https://github.com/zerotomvp/parley-cli/commit/b29d79969f4d25a08a90add48c844680ffb77aa4))
+- forbid background receives in notices ([`80ec170`](https://github.com/zerotomvp/parley-cli/commit/80ec1703d35f1e353722f2473a1052ed8c15f002))
+- compact wake and receive guidance ([`aca75f3`](https://github.com/zerotomvp/parley-cli/commit/aca75f362790e09b981824ae25b30f389b1d2122))
+
+### Documentation
+
+- clarify receive bootstrap guidance ([`e643e6c`](https://github.com/zerotomvp/parley-cli/commit/e643e6c89ecbf4b171de6f64f808f5ad0ab6d34d))
+- preserve Claude lifecycle smoke test ([`23966dd`](https://github.com/zerotomvp/parley-cli/commit/23966ddc3202747edb6808c34e388af838c4a2df))
+
 ## [1.1.0] - 2026-08-02
 
 ### Features
@@ -66,3 +87,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
 [1.0.0]: https://github.com/zerotomvp/parley-cli/commits/v1.0.0
 [1.1.0]: https://github.com/zerotomvp/parley-cli/compare/v1.0.0...v1.1.0
+[1.1.1]: https://github.com/zerotomvp/parley-cli/compare/v1.1.0...v1.1.1
