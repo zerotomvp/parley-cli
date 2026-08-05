@@ -75,6 +75,16 @@ parley join review-xyzab --as author
 parley join review-xyzab --as reviewer
 ```
 
+When the opener must not be sent until its recipient is actually present, wait on
+roster state instead of inferring a join from transcript silence:
+
+```bash
+parley wait-for-join review-xyzab reviewer
+```
+
+Pass several roles as additional arguments, and optionally bound the wait with
+`--timeout <seconds>`. This command does not read messages or create a cursor.
+
 The opener guards against accidentally reusing an existing channel with
 `--expect-new`:
 
@@ -327,6 +337,7 @@ using the wake or listener mode reported by `join` if more work may arrive.
 | `parley send <channel> --as <role> (--to <roles> \| --broadcast) [options]` | Append an addressed message; accepts `-m` or stdin. |
 | `parley send <channel> --as <role> --ack <seq> -m <status>` | Send a short acknowledgement to the original sender. |
 | `parley recv <channel> --as <role> --last-seen <seq> [--wait]` | Read addressed peer messages after an explicit checkpoint. |
+| `parley wait-for-join <channel> <roles...> [--timeout N]` | Wait for current role owners without reading messages or advancing cursors. |
 | `parley who <channel>` | List claimed roles and recent activity. |
 | `parley log <channel> [--limit N]` | Preview recent transcript messages; `--limit 0` shows all. |
 | `parley show <channel> <seq>` | Print one message in full. |

@@ -30,6 +30,7 @@ rootCommand.Directives.Add(new SuggestDirective());
 rootCommand.Subcommands.Add(JoinCommand.Create());
 rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());
+rootCommand.Subcommands.Add(WaitForJoinCommand.Create());
 rootCommand.Subcommands.Add(WhoCommand.Create());
 rootCommand.Subcommands.Add(LogCommand.Create());
 rootCommand.Subcommands.Add(ShowCommand.Create());

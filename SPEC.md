@@ -84,6 +84,11 @@ does not alter wake timeouts, acknowledgement rules, retries, or fallback behavi
 performed by `drop` are best-effort checks; a small check-to-write race is accepted.
 Random five-letter channel suffixes provide the primary namespace separation.
 
+`wait-for-join` polls the current roster until every requested role is owned. It
+returns immediately for an already-satisfied roster, reflects the latest claim when
+a role is reclaimed during the wait, and returns exit code 2 after a bounded timeout.
+It does not inspect the transcript and cannot create or advance a message cursor.
+
 ## Model-context checkpoints
 
 The on-disk cursor records what a CLI process emitted, while `recv --last-seen`

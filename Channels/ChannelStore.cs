@@ -368,6 +368,28 @@ public class ChannelStore
         }
     }
 
+    /// <summary>
+    /// Waits until every requested role has a current roster owner. This watches only role claims;
+    /// it never reads the transcript or creates a cursor. The returned memberships are resolved
+    /// from one final roster snapshot, so a force-reclaim observed while waiting is reflected.
+    /// </summary>
+    public async Task<(bool satisfied, IReadOnlyList<RosterEntryWire> memberships)> WaitForRoles(
+        string channel, IReadOnlyList<string> roles, int timeoutSeconds, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        while (true)
+        {
+            var owners = Owners(channel);
+            if (roles.All(owners.ContainsKey))
+                return (true, roles.Select(role => owners[role]).ToArray());
+
+            if (timeoutSeconds > 0 && sw.Elapsed.TotalSeconds >= timeoutSeconds)
+                return (false, roles.Where(owners.ContainsKey).Select(role => owners[role]).ToArray());
+
+            await Task.Delay(200, ct);
+        }
+    }
+
     /// <summary>Channel names that have a transcript file (including ones emptied by <c>pop</c>).</summary>
     public List<string> ListChannels()
     {
