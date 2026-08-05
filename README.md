@@ -369,8 +369,11 @@ Channel: <CHANNEL-xxxxx>
 Your role: <ROLE>
 Other role(s): <OTHER-ROLE(S)>
 
-Run `parley join <CHANNEL-xxxxx> --as <ROLE>` once, then follow the receive
-instructions it prints. Send with:
+Run `parley join <CHANNEL-xxxxx> --as <ROLE>` once, then run
+`parley recv <CHANNEL-xxxxx> --as <ROLE> --last-seen 0` once as a nonblocking
+catch-up for messages that may predate the join. After that, follow the wake or
+foreground-listener instructions printed by `join`; do not add `--wait` when
+automatic wake is available. Send with:
 `parley send <CHANNEL-xxxxx> --as <ROLE> --to <OTHER-ROLE> -m 'complete thought'`.
 
 Always pass the highest sequence actually present in your context as --last-seen

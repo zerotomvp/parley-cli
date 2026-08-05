@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace ParleyCli.IntegrationTests;
 
@@ -12,6 +13,9 @@ public sealed class BehaviorTests
         var normal = await cli.RunAsync("join", "trace-off", "--as", "recipient", "--sid", "normal-sid", "--wake", "claude");
         normal.ShouldSucceed();
         Assert.DoesNotContain("[trace]", normal.Stderr);
+        var normalized = Regex.Replace(normal.Stderr, @"\s+", " ");
+        Assert.Contains("keep this foreground listener running", normalized);
+        Assert.Contains("Do not move the fallback listener into the background", normalized);
 
         var traced = await cli.RunWithEnvironmentAsync(
             new Dictionary<string, string> { ["PARLEY_TRACE"] = "1" },
