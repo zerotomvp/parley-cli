@@ -60,7 +60,8 @@ cd parley-cli
 ```
 
 The installer packs the current checkout and installs it as the global .NET tool
-`parley-cli`. It warns before installing a dirty worktree. To build without changing
+`parley-cli`, pinning the exact version from the generated package so a dirty local
+prerelease cannot resolve to a stable package from another NuGet feed. It warns before installing a dirty worktree. To build without changing
 your global tools, run `dotnet build -c Release` instead. For an isolated install,
 use `./install.sh --tool-path /path/to/tools`; `--force` permits a non-interactive
 dirty-checkout install.

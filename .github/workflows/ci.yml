@@ -39,3 +39,4 @@ jobs:
         run: |
           scripts/test-changelog.sh
           scripts/test-package-manifests.sh
+          scripts/test-installer.sh

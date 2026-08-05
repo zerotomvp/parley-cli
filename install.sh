@@ -45,13 +45,14 @@ if [[ -n "$tool_path" ]]; then
     if dotnet tool list --tool-path "$tool_path" | grep -q '^parley-cli '; then
         dotnet tool uninstall --tool-path "$tool_path" parley-cli
     fi
-    dotnet tool install --tool-path "$tool_path" --add-source "$package_dir" parley-cli --prerelease
+    dotnet tool install --tool-path "$tool_path" --add-source "$package_dir" \
+        --version "$version" parley-cli
     installed="$tool_path/parley"
 else
     if dotnet tool list --global | grep -q '^parley-cli '; then
         dotnet tool uninstall --global parley-cli
     fi
-    dotnet tool install --global --add-source "$package_dir" parley-cli --prerelease
+    dotnet tool install --global --add-source "$package_dir" --version "$version" parley-cli
     installed=parley
 fi
 
