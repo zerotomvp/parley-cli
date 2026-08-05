@@ -492,6 +492,9 @@ scripts/test-release.sh path/to/parley-linux-x64.tar.gz
 
 The live Codex wake check is opt-in because it needs a running app-server and a
 loaded thread. Set `PARLEY_LIVE_CODEX_SID` and run `scripts/test-codex-wake.sh`.
+Claude's real `/clear`, `/compact`, and resume boundaries have a repeatable
+[manual lifecycle smoke test](docs/claude-lifecycle-smoke.md); the process-level suite
+also simulates the confirmed in-process SID rotation.
 
 Self-contained releases currently remain untrimmed. Strict full-trim analysis is
 clean for Parley's code but Serilog's runtime type loading and object destructuring
