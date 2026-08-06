@@ -10,6 +10,10 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 - enable tracing from config ([`c55acff`](https://github.com/zerotomvp/parley-cli/commit/c55acffa8d2930a758cc1f429e247f9cc9a1bd83))
 - notify when a release is available ([`f194baf`](https://github.com/zerotomvp/parley-cli/commit/f194baf8fd0c1f50f4341f07e7c4600d1f84a00b))
 
+### Bug fixes
+
+- support an explicit cross-platform path ([`b6e0be1`](https://github.com/zerotomvp/parley-cli/commit/b6e0be1ad6c73506094af90b128f7dfc30b557ac))
+
 ### Documentation
 
 - document tracing config and channel upgrades ([`44b0017`](https://github.com/zerotomvp/parley-cli/commit/44b00177644fa854ea4b6ac4e740271754ee939a))
