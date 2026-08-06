@@ -93,6 +93,8 @@ User-Agent.
 The application-data cache stores only the check time, latest stable version, public
 release URL, and version already notified. `updates.check: false` in
 `parley-cli/config.json` disables all update requests.
+`PARLEY_CONFIG` overrides the platform-default config file path without relocating
+channel state, logs, or the update cache.
 
 An update notice is written only to stderr and at most once per discovered version,
 so stdout and JSON/JSONL contracts remain unchanged. Package-manager inference is a

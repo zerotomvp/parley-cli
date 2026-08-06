@@ -81,8 +81,7 @@ internal sealed class CliSandbox : IDisposable
             start.ArgumentList.Add(argument);
 
         start.Environment["PARLEY_HOME"] = _store;
-        start.Environment["XDG_CONFIG_HOME"] = Path.Combine(_store, "config");
-        start.Environment["APPDATA"] = Path.Combine(_store, "config");
+        start.Environment["PARLEY_CONFIG"] = ConfigFile;
         start.Environment.Remove("PARLEY_TRACE");
         start.Environment.Remove("PARLEY_ID");
         start.Environment.Remove("CODEX_THREAD_ID");

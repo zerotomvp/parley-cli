@@ -455,6 +455,11 @@ Disable update checks in the platform application-data `parley-cli/config.json`:
 }
 ```
 
+Set `PARLEY_CONFIG=/path/to/config.json` when a portable or isolated installation
+needs an explicit config location. This changes only the config file path; channel
+state continues to follow `PARLEY_HOME`, while logs and the update cache remain in
+platform application data.
+
 ## Troubleshooting
 
 ### A receive ran, but the model did not see its output

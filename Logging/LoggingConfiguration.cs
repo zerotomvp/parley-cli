@@ -10,6 +10,7 @@ namespace ParleyCli.Logging;
 public static class LoggingConfiguration
 {
     public const string TraceEnvironmentVariable = "PARLEY_TRACE";
+    public const string ConfigEnvironmentVariable = "PARLEY_CONFIG";
     public const string ConfigFileName = "config.json";
 
     private static readonly Lazy<Settings> Current = new(ResolveSettings);
@@ -19,7 +20,10 @@ public static class LoggingConfiguration
     public static bool UpdateChecksEnabled => Current.Value.UpdateChecksEnabled;
     public static string? ConfigurationWarning => Current.Value.Warning;
 
-    public static string ConfigPath => Path.Combine(ApplicationDirectory, ConfigFileName);
+    public static string ConfigPath =>
+        Environment.GetEnvironmentVariable(ConfigEnvironmentVariable) is { Length: > 0 } configured
+            ? Path.GetFullPath(configured)
+            : Path.Combine(ApplicationDirectory, ConfigFileName);
     public static string ApplicationDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "parley-cli");
 
