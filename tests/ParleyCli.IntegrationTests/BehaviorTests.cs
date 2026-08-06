@@ -336,7 +336,14 @@ public sealed class BehaviorTests
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (DateTime.UtcNow < deadline)
         {
-            if (File.Exists(path) && File.ReadLines(path).Count() >= count) return;
+            try
+            {
+                if (File.Exists(path) && File.ReadLines(path).Count() >= count) return;
+            }
+            catch (IOException)
+            {
+                // Windows can observe the writer's brief exclusive append lock.
+            }
             await Task.Delay(50);
         }
         throw new TimeoutException($"Transcript did not reach {count} lines: {path}");
