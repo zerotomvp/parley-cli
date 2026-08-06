@@ -12,20 +12,23 @@ public static class LoggingConfiguration
     public const string TraceEnvironmentVariable = "PARLEY_TRACE";
     public const string ConfigFileName = "config.json";
 
-    private static readonly Lazy<TraceSetting> Trace = new(ResolveTraceSetting);
+    private static readonly Lazy<Settings> Current = new(ResolveSettings);
 
-    public static bool TraceEnabled => Trace.Value.Enabled;
-    public static string TraceSource => Trace.Value.Source;
-    public static string? ConfigurationWarning => Trace.Value.Warning;
+    public static bool TraceEnabled => Current.Value.TraceEnabled;
+    public static string TraceSource => Current.Value.TraceSource;
+    public static bool UpdateChecksEnabled => Current.Value.UpdateChecksEnabled;
+    public static string? ConfigurationWarning => Current.Value.Warning;
 
-    public static string ConfigPath => Path.Combine(AppDataDirectory(), ConfigFileName);
+    public static string ConfigPath => Path.Combine(ApplicationDirectory, ConfigFileName);
+    public static string ApplicationDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "parley-cli");
 
     public static LogEventLevel InitialLevel =>
         TraceEnabled ? LogEventLevel.Verbose : LogEventLevel.Information;
 
     public static Logger CreateLogger(LoggingLevelSwitch levelSwitch)
     {
-        var logDir = Path.Combine(AppDataDirectory(), "logs");
+        var logDir = Path.Combine(ApplicationDirectory, "logs");
         Directory.CreateDirectory(logDir);
 
         return new LoggerConfiguration()
@@ -53,39 +56,55 @@ public static class LoggingConfiguration
         _       => LogEventLevel.Information
     };
 
-    private static TraceSetting ResolveTraceSetting()
+    private static Settings ResolveSettings()
     {
         var environmentValue = Environment.GetEnvironmentVariable(TraceEnvironmentVariable);
-        if (environmentValue is not null)
-            return new TraceSetting(IsEnabled(environmentValue), TraceEnvironmentVariable);
-
         if (!File.Exists(ConfigPath))
-            return new TraceSetting(false, "default");
+            return new Settings(
+                environmentValue is not null && IsEnabled(environmentValue),
+                environmentValue is null ? "default" : TraceEnvironmentVariable,
+                UpdateChecksEnabled: true);
 
         try
         {
             using var stream = File.OpenRead(ConfigPath);
             var config = JsonSerializer.Deserialize<ParleyConfig>(stream);
-            return new TraceSetting(config?.Trace == true, ConfigPath);
+            return new Settings(
+                environmentValue is null ? config?.Trace == true : IsEnabled(environmentValue),
+                environmentValue is null ? ConfigPath : TraceEnvironmentVariable,
+                config?.Updates?.Check ?? true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new TraceSetting(false, ConfigPath,
-                $"Could not read tracing configuration from {ConfigPath}: {ex.Message}");
+            return new Settings(
+                environmentValue is not null && IsEnabled(environmentValue),
+                environmentValue is null ? ConfigPath : TraceEnvironmentVariable,
+                UpdateChecksEnabled: true,
+                $"Could not read Parley configuration from {ConfigPath}: {ex.Message}");
         }
     }
 
     private static bool IsEnabled(string value) => value.Trim().ToLowerInvariant()
         is "1" or "true" or "yes" or "on";
 
-    private static string AppDataDirectory() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "parley-cli");
-
-    private sealed record TraceSetting(bool Enabled, string Source, string? Warning = null);
+    private sealed record Settings(
+        bool TraceEnabled,
+        string TraceSource,
+        bool UpdateChecksEnabled,
+        string? Warning = null);
 
     private sealed class ParleyConfig
     {
         [JsonPropertyName("trace")]
         public bool? Trace { get; init; }
+
+        [JsonPropertyName("updates")]
+        public UpdateConfig? Updates { get; init; }
+    }
+
+    private sealed class UpdateConfig
+    {
+        [JsonPropertyName("check")]
+        public bool? Check { get; init; }
     }
 }

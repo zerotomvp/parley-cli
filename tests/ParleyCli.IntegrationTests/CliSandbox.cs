@@ -15,6 +15,9 @@ internal sealed class CliSandbox : IDisposable
         _root = FindRepositoryRoot();
         _store = Path.Combine(Path.GetTempPath(), $"parley-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_store);
+        var configFile = Path.Combine(_store, "config", "parley-cli", "config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(configFile)!);
+        File.WriteAllText(configFile, """{"updates":{"check":false}}""");
         _fakeBin = Path.Combine(_store, "bin");
         Directory.CreateDirectory(_fakeBin);
 

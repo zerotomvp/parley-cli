@@ -84,6 +84,25 @@ traces contain lifecycle metadata, identifiers, frame lengths, timing, status, a
 exceptions, but never transcript message bodies or raw MCP frames. Enabling tracing
 does not alter wake timeouts, acknowledgement rules, retries, or fallback behavior.
 
+Release discovery is enabled by default and is Parley's only direct internet
+behavior. Eligible lifecycle invocations (`join` and `claude-channel`) query GitHub's
+public latest-release endpoint no more than once per 24 hours with a bounded timeout.
+The request contains no channel, transcript, role, SID, message, or diagnostics data.
+Its only Parley-specific request metadata is the public current version in the
+User-Agent.
+The application-data cache stores only the check time, latest stable version, public
+release URL, and version already notified. `updates.check: false` in
+`parley-cli/config.json` disables all update requests.
+
+An update notice is written only to stderr and at most once per discovered version,
+so stdout and JSON/JSONL contracts remain unchanged. Package-manager inference is a
+pure inspection of the current/resolved executable path and an adjacent .NET tool
+store: Homebrew, Scoop, global .NET tool, and custom-path .NET tool installations
+receive their corresponding upgrade command. No package-manager process is started.
+Ambiguous/manual installations receive the public release URL instead. Network,
+cache, parsing, and permission failures are non-fatal and do not produce a normal-mode
+warning.
+
 `--expect-new` guards an opener against channel-name reuse. It and the stale check
 performed by `drop` are best-effort checks; a small check-to-write race is accepted.
 Random five-letter channel suffixes provide the primary namespace separation.

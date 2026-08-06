@@ -25,6 +25,7 @@ session that currently owns a recipient role.
 - [Commands](#commands)
 - [Agent orientation prompt](#agent-orientation-prompt)
 - [Storage and platform support](#storage-and-platform-support)
+- [Update notices](#update-notices)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 
@@ -152,6 +153,11 @@ Use `parley who <channel>` to inspect current role ownership.
 
 - Parley coordinates processes that can access the same `PARLEY_HOME`. It is not a
   hosted relay or an internet transport.
+- Parley never sends conversations, message bodies, roles, session IDs, channel
+  state, or diagnostics to a remote service. Its only default internet access is a
+  cached request to GitHub for the latest public release, described under
+  [Update notices](#update-notices). Claude and Codex wake integrations communicate
+  only with their local harness processes.
 - Channel files are plaintext and have no built-in authentication, authorization,
   or encryption. Protect the storage directory with normal filesystem permissions
   and do not send secrets through an untrusted shared mount.
@@ -414,6 +420,41 @@ self-contained release targets `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64
 Codex automatic wake requires a running app-server and a loaded thread. All
 filesystem-only messaging works without either integration.
 
+## Update notices
+
+Update checks are enabled by default. On `join` and `claude-channel` startup, Parley
+checks GitHub's public latest-release endpoint at most once every 24 hours. The check
+is failure-silent, has a two-second timeout, never runs on the latency-sensitive
+`send` or `recv` paths, and stores only release metadata in
+`update-check.json` beside the platform application-data config. No channel or
+conversation data is included in the request. Apart from standard HTTPS connection
+metadata, the request identifies only the public Parley version in its User-Agent.
+
+When a newer stable version is found, Parley prints one notice for that version to
+stderr. It infers the installation method from the running executable path without
+executing a package manager and, when the match is unambiguous, prints one of:
+
+```text
+brew upgrade parley
+scoop update parley
+dotnet tool update --global parley-cli
+dotnet tool update --tool-path <directory> parley-cli
+```
+
+Manual or unrecognized installations receive the GitHub release URL instead. The
+inference is not persisted, so moving or reinstalling Parley changes the next
+suggestion naturally.
+
+Disable update checks in the platform application-data `parley-cli/config.json`:
+
+```json
+{
+  "updates": {
+    "check": false
+  }
+}
+```
+
 ## Troubleshooting
 
 ### A receive ran, but the model did not see its output
@@ -462,7 +503,10 @@ file (`~/.config/parley-cli/config.json` on Linux):
 
 ```json
 {
-  "trace": true
+  "trace": true,
+  "updates": {
+    "check": true
+  }
 }
 ```
 

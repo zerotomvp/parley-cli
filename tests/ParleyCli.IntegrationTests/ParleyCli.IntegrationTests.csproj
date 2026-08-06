@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../parley-cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../parley-cli.csproj" />
     <Using Include="Xunit" />
   </ItemGroup>
 

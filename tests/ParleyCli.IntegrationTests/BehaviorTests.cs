@@ -31,7 +31,8 @@ public sealed class BehaviorTests
     {
         using var cli = new CliSandbox();
         Directory.CreateDirectory(Path.GetDirectoryName(cli.ConfigFile)!);
-        await File.WriteAllTextAsync(cli.ConfigFile, """{"trace":true}""");
+        await File.WriteAllTextAsync(cli.ConfigFile,
+            """{"trace":true,"updates":{"check":false}}""");
 
         var configured = await cli.RunAsync(
             "join", "trace-config", "--as", "recipient", "--sid", "config-sid", "--wake", "claude");
@@ -45,7 +46,8 @@ public sealed class BehaviorTests
         disabledByEnvironment.ShouldSucceed();
         Assert.DoesNotContain("[trace]", disabledByEnvironment.Stderr);
 
-        await File.WriteAllTextAsync(cli.ConfigFile, """{"trace":false}""");
+        await File.WriteAllTextAsync(cli.ConfigFile,
+            """{"trace":false,"updates":{"check":false}}""");
         var enabledByEnvironment = await cli.RunWithEnvironmentAsync(
             new Dictionary<string, string> { ["PARLEY_TRACE"] = "yes" },
             "join", "trace-env-on", "--as", "recipient", "--sid", "env-on-sid", "--wake", "claude");

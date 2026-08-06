@@ -4,6 +4,7 @@ using ParleyCli;
 using ParleyCli.Commands;
 using ParleyCli.Commands.Admin;
 using ParleyCli.Logging;
+using ParleyCli.Updates;
 using Serilog;
 using Serilog.Core;
 
@@ -43,7 +44,9 @@ rootCommand.Subcommands.Add(AdminCommand.Create());
 
 try
 {
-    return await rootCommand.Parse(args).InvokeAsync();
+    var parseResult = rootCommand.Parse(args);
+    await UpdateChecker.CheckAndNotifyAsync(parseResult.CommandResult.Command.Name, Console.Error);
+    return await parseResult.InvokeAsync();
 }
 catch (Exception ex)
 {
