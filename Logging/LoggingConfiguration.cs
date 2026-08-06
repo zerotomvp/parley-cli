@@ -2,25 +2,30 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ParleyCli.Logging;
 
 public static class LoggingConfiguration
 {
     public const string TraceEnvironmentVariable = "PARLEY_TRACE";
+    public const string ConfigFileName = "config.json";
 
-    public static bool TraceEnabled =>
-        Environment.GetEnvironmentVariable(TraceEnvironmentVariable)?.Trim().ToLowerInvariant()
-            is "1" or "true" or "yes" or "on";
+    private static readonly Lazy<TraceSetting> Trace = new(ResolveTraceSetting);
+
+    public static bool TraceEnabled => Trace.Value.Enabled;
+    public static string TraceSource => Trace.Value.Source;
+    public static string? ConfigurationWarning => Trace.Value.Warning;
+
+    public static string ConfigPath => Path.Combine(AppDataDirectory(), ConfigFileName);
 
     public static LogEventLevel InitialLevel =>
         TraceEnabled ? LogEventLevel.Verbose : LogEventLevel.Information;
 
     public static Logger CreateLogger(LoggingLevelSwitch levelSwitch)
     {
-        var logDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "parley-cli", "logs");
+        var logDir = Path.Combine(AppDataDirectory(), "logs");
         Directory.CreateDirectory(logDir);
 
         return new LoggerConfiguration()
@@ -47,4 +52,40 @@ public static class LoggingConfiguration
         "error" => LogEventLevel.Error,
         _       => LogEventLevel.Information
     };
+
+    private static TraceSetting ResolveTraceSetting()
+    {
+        var environmentValue = Environment.GetEnvironmentVariable(TraceEnvironmentVariable);
+        if (environmentValue is not null)
+            return new TraceSetting(IsEnabled(environmentValue), TraceEnvironmentVariable);
+
+        if (!File.Exists(ConfigPath))
+            return new TraceSetting(false, "default");
+
+        try
+        {
+            using var stream = File.OpenRead(ConfigPath);
+            var config = JsonSerializer.Deserialize<ParleyConfig>(stream);
+            return new TraceSetting(config?.Trace == true, ConfigPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return new TraceSetting(false, ConfigPath,
+                $"Could not read tracing configuration from {ConfigPath}: {ex.Message}");
+        }
+    }
+
+    private static bool IsEnabled(string value) => value.Trim().ToLowerInvariant()
+        is "1" or "true" or "yes" or "on";
+
+    private static string AppDataDirectory() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "parley-cli");
+
+    private sealed record TraceSetting(bool Enabled, string Source, string? Warning = null);
+
+    private sealed class ParleyConfig
+    {
+        [JsonPropertyName("trace")]
+        public bool? Trace { get; init; }
+    }
 }

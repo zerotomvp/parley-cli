@@ -10,9 +10,12 @@ using Serilog.Core;
 var levelSwitch = new LoggingLevelSwitch(LoggingConfiguration.InitialLevel);
 Log.Logger = LoggingConfiguration.CreateLogger(levelSwitch);
 
+if (LoggingConfiguration.ConfigurationWarning is { } configurationWarning)
+    Log.Warning("{ConfigurationWarning}", configurationWarning);
+
 if (LoggingConfiguration.TraceEnabled)
-    Log.Verbose("[trace] diagnostics enabled by {EnvironmentVariable}; version={Version}",
-        LoggingConfiguration.TraceEnvironmentVariable,
+    Log.Verbose("[trace] diagnostics enabled by {Source}; version={Version}",
+        LoggingConfiguration.TraceSource,
         typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown");
 
 Cli.ConfigureServices(s => s.AddParleyServices(levelSwitch));

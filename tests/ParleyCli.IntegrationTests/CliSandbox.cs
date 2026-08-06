@@ -78,6 +78,9 @@ internal sealed class CliSandbox : IDisposable
             start.ArgumentList.Add(argument);
 
         start.Environment["PARLEY_HOME"] = _store;
+        start.Environment["XDG_CONFIG_HOME"] = Path.Combine(_store, "config");
+        start.Environment["APPDATA"] = Path.Combine(_store, "config");
+        start.Environment.Remove("PARLEY_TRACE");
         start.Environment.Remove("PARLEY_ID");
         start.Environment.Remove("CODEX_THREAD_ID");
         start.Environment.Remove("CLAUDE_CODE_SESSION_ID");
@@ -100,6 +103,9 @@ internal sealed class CliSandbox : IDisposable
 
     public string ClaudeEndpointRegistration(int pid, long startedAt) =>
         Path.Combine(_store, "runtime", "claude", $"{pid}-{startedAt}.json");
+
+    public string ConfigFile =>
+        Path.Combine(_store, "config", "parley-cli", "config.json");
 
     public void Dispose()
     {

@@ -27,6 +27,33 @@ public sealed class BehaviorTests
     }
 
     [Fact]
+    public async Task Tracing_can_be_enabled_in_config_and_environment_presence_takes_precedence()
+    {
+        using var cli = new CliSandbox();
+        Directory.CreateDirectory(Path.GetDirectoryName(cli.ConfigFile)!);
+        await File.WriteAllTextAsync(cli.ConfigFile, """{"trace":true}""");
+
+        var configured = await cli.RunAsync(
+            "join", "trace-config", "--as", "recipient", "--sid", "config-sid", "--wake", "claude");
+        configured.ShouldSucceed();
+        Assert.Contains($"[trace] diagnostics enabled by {cli.ConfigFile}", configured.Stderr);
+        Assert.Contains("kind=probe", configured.Stderr);
+
+        var disabledByEnvironment = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["PARLEY_TRACE"] = "0" },
+            "join", "trace-env-off", "--as", "recipient", "--sid", "env-off-sid", "--wake", "claude");
+        disabledByEnvironment.ShouldSucceed();
+        Assert.DoesNotContain("[trace]", disabledByEnvironment.Stderr);
+
+        await File.WriteAllTextAsync(cli.ConfigFile, """{"trace":false}""");
+        var enabledByEnvironment = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["PARLEY_TRACE"] = "yes" },
+            "join", "trace-env-on", "--as", "recipient", "--sid", "env-on-sid", "--wake", "claude");
+        enabledByEnvironment.ShouldSucceed();
+        Assert.Contains("[trace] diagnostics enabled by PARLEY_TRACE", enabledByEnvironment.Stderr);
+    }
+
+    [Fact]
     public async Task Join_is_idempotent_rejects_collisions_and_supports_forced_reclaim()
     {
         using var cli = new CliSandbox();
