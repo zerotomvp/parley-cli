@@ -213,6 +213,11 @@ without probing unrelated harnesses. The injected event contains only the short
 receive notice; the model still runs `recv --last-seen` to consume the durable
 message and reconcile its cursor.
 
+The channel subprocess remains on the executable version with which Claude started.
+After upgrading Parley, restart Claude Code so the new channel process and its
+process-correlated endpoint registration are active; installing a new binary does
+not retrofit an already-running MCP subprocess.
+
 Claude's `/clear` can replace `CLAUDE_CODE_SESSION_ID` without restarting the MCP
 channel subprocess. Parley keeps the Claude UUID as the public role owner and records
 the matching process PID/start time only as private correlation. On the first command
@@ -452,14 +457,26 @@ agent with tracing explicitly enabled:
 PARLEY_TRACE=1 claude
 ```
 
+Tracing can instead be enabled persistently in the platform application-data config
+file (`~/.config/parley-cli/config.json` on Linux):
+
+```json
+{
+  "trace": true
+}
+```
+
 For Claude Code, the same variable may be added to the Parley MCP server's `env`
 object. Restart Claude after changing MCP configuration. Tracing covers MCP
 initialization, named-pipe connections, probes, notifications, acknowledgements,
 timings, and exception details. It never records Parley message bodies or raw MCP
 frames. Trace events go to stderr and the rolling `parley-cli-*.log` files under
 the platform application-data directory (`~/.config/parley-cli/logs` on Linux).
-Accepted opt-in values are `1`, `true`, `yes`, and `on` (case-insensitive); unset
-or any other value leaves tracing disabled.
+When `PARLEY_TRACE` is present it overrides the config file. Accepted opt-in values
+are `1`, `true`, `yes`, and `on` (case-insensitive); any other present value disables
+tracing, so `PARLEY_TRACE=0` is an explicit per-process override. If the variable is
+unset, the config value is used. A missing config file means tracing is off. An
+unreadable or malformed file also leaves tracing off and emits a warning.
 
 ### `parley` is not found
 

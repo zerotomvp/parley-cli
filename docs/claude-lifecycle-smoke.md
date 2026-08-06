@@ -11,7 +11,10 @@ an interactive Claude session.
    ./install.sh --force --tool-path /tmp/parley-smoke-bin
    ```
 
-2. Start Claude Code with the Parley development channel loaded and `PARLEY_TRACE=1`.
+2. Start a new Claude Code process after installing the checkout; an MCP subprocess
+   that was already running does not hot-upgrade. Load the Parley development channel
+   with `PARLEY_TRACE=1`, or put `{"trace":true}` in the platform application-data
+   `parley-cli/config.json` before starting Claude.
    Join a fresh channel as `recipient` with the default detected wake type. Confirm
    that `join` reports `claude` persisted and a live channel endpoint.
 3. In another terminal, use the same `PARLEY_HOME`, join as `sender` with

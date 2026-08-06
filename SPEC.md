@@ -75,7 +75,11 @@ Old delivery-less transcript records are defensively treated as broadcasts so
 migrated data is not hidden, but the current send path cannot create such records.
 
 Transport tracing is operational diagnostics, not channel state. It is disabled
-unless `PARLEY_TRACE` is explicitly set to `1`, `true`, `yes`, or `on`. Claude
+unless the platform application-data `parley-cli/config.json` contains a boolean
+`trace: true`, or `PARLEY_TRACE` is explicitly set to `1`, `true`, `yes`, or `on`.
+When the environment variable is present it overrides config; any non-opt-in value
+disables tracing. A missing config file is the disabled default; an unreadable or
+malformed config disables tracing and emits a warning. Claude
 traces contain lifecycle metadata, identifiers, frame lengths, timing, status, and
 exceptions, but never transcript message bodies or raw MCP frames. Enabling tracing
 does not alter wake timeouts, acknowledgement rules, retries, or fallback behavior.
@@ -158,6 +162,9 @@ no role, transcript, or cursor state. It is removed on clean shutdown; startup s
 malformed registrations and entries whose exact PID/start-time pair is no longer
 reported by Claude. A registration is only a discovery hint: endpoint acknowledgement
 is required before it can affect a role.
+An in-process channel server is not hot-upgraded when its executable is replaced;
+Claude must restart after a Parley upgrade before behavior introduced by the new
+channel-server version, including new registration formats, is available.
 Discovery is retried only when a membership-checked command finds that its current
 UUID differs from a `wake: claude` owner. Rotation is allowed only when the recorded
 process now reports the caller's UUID. The CLI first asks the old same-user endpoint
