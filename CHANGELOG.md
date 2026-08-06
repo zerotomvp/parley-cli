@@ -3,6 +3,17 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.2.0] - 2026-08-06
+
+### Features
+
+- enable tracing from config ([`c55acff`](https://github.com/zerotomvp/parley-cli/commit/c55acffa8d2930a758cc1f429e247f9cc9a1bd83))
+- notify when a release is available ([`f194baf`](https://github.com/zerotomvp/parley-cli/commit/f194baf8fd0c1f50f4341f07e7c4600d1f84a00b))
+
+### Documentation
+
+- document tracing config and channel upgrades ([`44b0017`](https://github.com/zerotomvp/parley-cli/commit/44b00177644fa854ea4b6ac4e740271754ee939a))
+
 ## [1.1.2] - 2026-08-05
 
 ### Bug fixes
@@ -95,3 +106,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.1.0]: https://github.com/zerotomvp/parley-cli/compare/v1.0.0...v1.1.0
 [1.1.1]: https://github.com/zerotomvp/parley-cli/compare/v1.1.0...v1.1.1
 [1.1.2]: https://github.com/zerotomvp/parley-cli/compare/v1.1.1...v1.1.2
+[1.2.0]: https://github.com/zerotomvp/parley-cli/compare/v1.1.2...v1.2.0
