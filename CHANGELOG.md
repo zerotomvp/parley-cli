@@ -3,6 +3,17 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.2.1] - 2026-08-07
+
+### Bug fixes
+
+- avoid full history reads for wakes ([`e41ca48`](https://github.com/zerotomvp/parley-cli/commit/e41ca48c3a2652d8ee791830d56d1964292dbb38))
+- retry timed out wake submissions ([`092f710`](https://github.com/zerotomvp/parley-cli/commit/092f7109d6b0417e04e7ed9201890b50e0615b55))
+
+### Documentation
+
+- explain resilient Codex wake delivery ([`d84a2a8`](https://github.com/zerotomvp/parley-cli/commit/d84a2a811d226c8555f402b177908b153dc88f09))
+
 ## [1.2.0] - 2026-08-06
 
 ### Features
@@ -111,3 +122,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.1.1]: https://github.com/zerotomvp/parley-cli/compare/v1.1.0...v1.1.1
 [1.1.2]: https://github.com/zerotomvp/parley-cli/compare/v1.1.1...v1.1.2
 [1.2.0]: https://github.com/zerotomvp/parley-cli/compare/v1.1.2...v1.2.0
+[1.2.1]: https://github.com/zerotomvp/parley-cli/compare/v1.2.0...v1.2.1
