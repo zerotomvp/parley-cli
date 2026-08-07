@@ -207,9 +207,15 @@ For a recipient registered with `wake: codex`:
 2. asks `codex app-server daemon version` for the live control socket;
 3. connects by WebSocket and initializes the app-server protocol;
 4. calls `thread/loaded/list` and matches recipient SIDs exactly;
-5. for an active thread, sends `turn/steer` with its `expectedTurnId`; for an idle
-   thread, sends `turn/start`;
-6. re-reads state and retries once if the thread changes state during the operation.
+5. calls `thread/read` without turns to determine the current thread state;
+6. for an active thread, resolves `expectedTurnId` from a bounded tail of its local
+   rollout, falling back to a full `thread/read` only when the tail is unavailable or
+   inconclusive; for an idle thread, it needs no turn history;
+7. sends `turn/steer` or `turn/start` with a deterministic `clientUserMessageId`;
+8. re-reads state and retries once if the thread changes state during submission;
+9. after a canceled or timed-out submission, checks the rollout for the client ID.
+   A persisted message counts as success; otherwise it retries once over a fresh
+   connection using the same ID, then performs one final reconciliation.
 
 The wake transport factory constructs only the transport named by the recipient's
 roster entry. `wake: never` performs no notification. The injected text is only a
@@ -222,7 +228,8 @@ in the durable transcript. A missing Claude channel, Codex executable, stopped
 daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
 non-fatal unavailable-endpoint note. A failure after a live Claude connection or
 loaded Codex SID match is reported distinctly. Wake failure cannot remove or duplicate the durable
-message.
+message, though a transport-level retry may produce a recognizable duplicate wake
+notice if persistence becomes visible only after the bounded reconciliation window.
 
 `join` reports harness detection, the concrete persisted wake type, and live endpoint
 availability as separate facts before printing operating guidance. Its probe result is

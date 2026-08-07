@@ -260,9 +260,12 @@ mechanism, however. Parley therefore separates delivery from notification:
 1. `send` first appends the complete message to the durable JSONL transcript.
 2. The recipient role's stored `codex` wake type selects the app-server transport,
    which matches the recipient SID to a loaded thread.
-3. It injects only a short receive notice, using `turn/start` for an idle thread or
+3. It reads the lightweight thread state. For an active thread, it resolves the
+   current turn from a bounded tail of the local rollout and uses full history only
+   as a compatibility fallback.
+4. It injects only a short receive notice, using `turn/start` for an idle thread or
    `turn/steer` for an active one.
-4. The model runs `recv --last-seen <seq>` and obtains the actual message from the
+5. The model runs `recv --last-seen <seq>` and obtains the actual message from the
    transcript. If the notice is missed, the same explicit checkpoint replays it.
 
 Wake-up is consequently best-effort, while delivery remains recoverable and does
@@ -313,7 +316,10 @@ detection is unavailable. A role's resolved wake type cannot change, even with
 
 Each send reads the destination role's wake type and constructs only that transport.
 There is no sequential harness probing and no send-side wake option. Wake failure
-never undelivers or duplicates a message.
+never undelivers the durable Parley message. Codex submissions carry a deterministic
+client ID; after a canceled or timed-out write, Parley checks the rollout for that ID
+before making one bounded retry over a fresh connection. This minimizes duplicate
+notices while preserving recoverable delivery.
 
 `join` reports the persisted wake type separately from current endpoint availability,
 then prints the appropriate automatic-wake or foreground-listener instructions:
