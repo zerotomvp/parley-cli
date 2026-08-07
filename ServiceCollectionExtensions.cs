@@ -13,11 +13,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ChannelStore>();
         services.AddSingleton<CodexWakeClient>();
         services.AddSingleton<ClaudeWakeClient>();
+        services.AddSingleton<PiWakeClient>();
         services.AddSingleton<ClaudeAgentDiscovery>();
         services.AddSingleton<ClaudeEndpointRegistry>();
         services.AddSingleton<ClaudeSessionResolver>();
         services.AddSingleton<WakeClientFactory>();
         services.AddSingleton<ClaudeChannelServer>();
+        services.AddSingleton<PiChannelServer>();
         return services;
     }
 }

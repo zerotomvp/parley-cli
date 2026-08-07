@@ -7,11 +7,11 @@ namespace ParleyCli.Integrations;
 /// </summary>
 public sealed class WakeClientFactory(IServiceProvider services)
 {
-    public IWakeClient? Create(string wake) => wake switch
+    public IWakeClient? Create(string wake)
     {
-        "claude" => services.GetRequiredService<ClaudeWakeClient>(),
-        "codex" => services.GetRequiredService<CodexWakeClient>(),
-        "never" => null,
-        _ => throw new ArgumentException($"Unknown stored wake type '{wake}'.")
-    };
+        if (wake == "never") return null;
+        var harness = HarnessCatalog.Find(wake)
+            ?? throw new ArgumentException($"Unknown stored wake type '{wake}'.");
+        return (IWakeClient)services.GetRequiredService(harness.WakeClientType);
+    }
 }

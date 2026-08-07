@@ -112,6 +112,26 @@ public sealed class BehaviorTests
     }
 
     [Fact]
+    public async Task Join_detects_pi_and_uses_its_session_id()
+    {
+        using var cli = new CliSandbox();
+        var result = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string>
+            {
+                ["PI_CODING_AGENT"] = "true",
+                ["PI_SESSION_ID"] = "pi-session-id",
+                ["CODEX_THREAD_ID"] = "inherited-parent-thread"
+            },
+            "join", "pi-detect", "--as", "reviewer");
+
+        result.ShouldSucceed();
+        Assert.Contains("wake type pi persisted (detected from the active harness)", result.Stderr);
+        var roster = await cli.RunAsync("who", "pi-detect", "--json");
+        Assert.Contains("\"sid\":\"pi-session-id\"", roster.Stdout);
+        Assert.Contains("\"wake\":\"pi\"", roster.Stdout);
+    }
+
+    [Fact]
     public async Task Direct_and_broadcast_delivery_respect_roles()
     {
         using var cli = new CliSandbox();

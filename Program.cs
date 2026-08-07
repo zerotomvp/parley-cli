@@ -40,6 +40,7 @@ rootCommand.Subcommands.Add(LogCommand.Create());
 rootCommand.Subcommands.Add(ShowCommand.Create());
 rootCommand.Subcommands.Add(DropCommand.Create());
 rootCommand.Subcommands.Add(ClaudeChannelCommand.Create());
+rootCommand.Subcommands.Add(PiChannelCommand.Create());
 rootCommand.Subcommands.Add(AdminCommand.Create());
 
 try

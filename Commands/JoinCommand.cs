@@ -26,7 +26,7 @@ public static class JoinCommand
         };
         var wakeOpt = new Option<string>("--wake")
         {
-            Description = "Wake type: detect resolves the current harness; codex or claude selects it explicitly; never disables wake-up",
+            Description = $"Wake type: detect resolves the current harness; explicit values: {HarnessCatalog.SupportedWakeValues}",
             DefaultValueFactory = _ => "detect"
         };
 
@@ -78,7 +78,8 @@ public static class JoinCommand
                 var probe = claudeEndpoint ?? await wakeClient.ProbeAsync(me.Sid, ct);
                 if (probe.Status == WakeStatus.Woken)
                 {
-                    Stderr.MarkupLine($"[green]✓[/] live {Markup.Escape(wakeClient.TransportName)} endpoint is available for this {(wakeClient is CodexWakeClient ? "thread" : "session")}");
+                    var subject = HarnessCatalog.Get(wake).EndpointSubject;
+                    Stderr.MarkupLine($"[green]✓[/] live {Markup.Escape(wakeClient.TransportName)} endpoint is available for this {subject}");
                     Stderr.MarkupLine("[grey]Do not maintain a blocking recv listener. Incoming notifications will tell you to receive.[/]");
                     Stderr.MarkupLine($"[grey]Recovery: parley recv {Markup.Escape(channel)} --as {Markup.Escape(me.Role)} --last-seen {checkpoint}[/]");
                 }
@@ -107,12 +108,11 @@ public static class JoinCommand
     private static string ResolveWake(string requested)
     {
         requested = requested.ToLowerInvariant();
-        if (requested is "codex" or "claude" or "never") return requested;
+        if (requested == "never" || HarnessCatalog.Find(requested) is not null) return requested;
         if (requested != "detect")
-            throw new ArgumentException("--wake must be detect, codex, claude, or never.");
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODEX_THREAD_ID"))) return "codex";
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID"))) return "claude";
+            throw new ArgumentException($"--wake must be detect or one of: {HarnessCatalog.SupportedWakeValues}.");
+        if (HarnessCatalog.Detect() is { } harness) return harness.Wake;
         throw new ArgumentException(
-            "--wake detect could not identify Codex or Claude Code. Pass --wake never for a manual session.");
+            "No supported harness detected. Pass --wake never for a manual session.");
     }
 }

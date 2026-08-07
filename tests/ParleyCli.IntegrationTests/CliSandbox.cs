@@ -86,6 +86,8 @@ internal sealed class CliSandbox : IDisposable
         start.Environment.Remove("PARLEY_ID");
         start.Environment.Remove("CODEX_THREAD_ID");
         start.Environment.Remove("CLAUDE_CODE_SESSION_ID");
+        start.Environment.Remove("PI_SESSION_ID");
+        start.Environment.Remove("PI_CODING_AGENT");
         if (environment is not null)
             foreach (var (name, value) in environment)
                 start.Environment[name] = value;

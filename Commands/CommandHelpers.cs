@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text;
 using System.Text.Json;
 using ParleyCli.Channels;
+using ParleyCli.Integrations;
 using ParleyCli.Logging;
 using ParleyCli.Models;
 using ParleyCli.Serialization;
@@ -47,16 +48,14 @@ public static class CommandHelpers
 
     /// <summary>
     /// Resolves this session's <c>sid</c> (session id). Precedence: explicit <c>--sid</c> /
-    /// <c>PARLEY_ID</c> → the agent runtime's own id, which persists across the agent's separate
-    /// shells (<c>CODEX_THREAD_ID</c>, then <c>CLAUDE_CODE_SESSION_ID</c>). Returns null if none
-    /// apply (manual use with no override) — callers may fall back to the role.
+    /// <c>PARLEY_ID</c> → the active runtime entry in <see cref="HarnessCatalog"/>. Returns null
+    /// if none apply (manual use with no override) — callers may fall back to the role.
     /// </summary>
     public static string? ResolveSid(ParseResult pr)
     {
         var sid = pr.GetValue(GlobalOptions.Sid)
                   ?? Environment.GetEnvironmentVariable("PARLEY_ID")
-                  ?? Environment.GetEnvironmentVariable("CODEX_THREAD_ID")
-                  ?? Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
+                  ?? HarnessCatalog.ResolveSessionId();
         return string.IsNullOrWhiteSpace(sid) ? null : ChannelStore.Validate("session id", sid);
     }
 
