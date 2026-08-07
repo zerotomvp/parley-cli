@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ParleyCli.Serialization;
+using Serilog;
 
 namespace ParleyCli.Integrations;
 
@@ -33,45 +34,55 @@ public sealed class CodexWakeClient : IWakeClient
     private static async Task<WakeResult> ConnectAndInspectAsync(
         string threadId, string? notification, CancellationToken outerCt)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
-        timeout.CancelAfter(TimeSpan.FromSeconds(4));
-        var ct = timeout.Token;
-
         try
         {
-            var socketPath = await FindSocketAsync(ct);
+            using var discoveryTimeout = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+            discoveryTimeout.CancelAfter(TimeSpan.FromSeconds(4));
+            var socketPath = await FindSocketAsync(discoveryTimeout.Token);
             if (socketPath is null) return new(WakeStatus.Unavailable);
 
-            await using var connection = await AppServerConnection.ConnectAsync(socketPath, ct);
-            await connection.SendAsync(new RpcRequest<InitializeParams>
+            var clientMessageId = notification is null
+                ? null
+                : CreateClientMessageId(threadId, notification);
+            string? rolloutPath = null;
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                Method = "initialize",
-                Id = 1,
-                Params = new InitializeParams
+                if (clientMessageId is not null
+                    && await WaitForClientMessageAsync(rolloutPath, clientMessageId, outerCt))
                 {
-                    ClientInfo = new ClientInfo
+                    Log.Verbose("[trace] Codex wake reconciled from rollout; attempt={Attempt}", attempt + 1);
+                    return new(WakeStatus.Woken);
+                }
+
+                using var attemptTimeout = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+                attemptTimeout.CancelAfter(TimeSpan.FromSeconds(4));
+                try
+                {
+                    await using var connection = await AppServerConnection.ConnectAsync(
+                        socketPath, attemptTimeout.Token);
+                    var prepared = await PrepareAsync(connection, threadId, attemptTimeout.Token);
+                    if (prepared.Status != WakeStatus.Woken) return prepared;
+                    if (notification is null) return prepared;
+
+                    var submission = await SubmitAsync(connection, threadId, notification,
+                        clientMessageId!, attemptTimeout.Token, path => rolloutPath = path);
+                    return submission;
+                }
+                catch (OperationCanceledException) when (!outerCt.IsCancellationRequested)
+                {
+                    Log.Verbose("[trace] Codex wake attempt timed out; attempt={Attempt} retry={Retry}",
+                        attempt + 1, attempt == 0);
+                    if (attempt == 1)
                     {
-                        Name = "parley_cli", Title = "Parley CLI", Version = "1"
+                        if (clientMessageId is not null
+                            && await WaitForClientMessageAsync(rolloutPath, clientMessageId, outerCt))
+                            return new(WakeStatus.Woken);
+                        return new(WakeStatus.Failed, "Codex app-server wake timed out after 2 attempts.");
                     }
                 }
-            }, ct);
-            await connection.SendAsync(new RpcRequest<EmptyParams>
-                { Method = "initialized", Params = new EmptyParams() }, ct);
-            var initialized = await connection.ReadResponseAsync<RpcResponse>(1, ct);
-            if (HasError(initialized, out var initError))
-                return new(WakeStatus.Failed, initError);
+            }
 
-            await connection.SendAsync(new RpcRequest<EmptyParams>
-                { Method = "thread/loaded/list", Id = 2, Params = new EmptyParams() }, ct);
-            var loaded = await connection.ReadResponseAsync<RpcResponse<LoadedThreadsResult>>(2, ct);
-            if (HasError(loaded, out var loadedError))
-                return new(WakeStatus.Failed, loadedError);
-
-            var isLoaded = loaded.Result?.Data.Contains(threadId, StringComparer.Ordinal) == true;
-            if (!isLoaded) return new(WakeStatus.Unavailable);
-            if (notification is null) return new(WakeStatus.Woken);
-
-            return await SubmitAsync(connection, threadId, notification, ct);
+            return new(WakeStatus.Failed, "Codex app-server wake timed out after 2 attempts.");
         }
         catch (Exception ex) when (ex is IOException
                                    or SocketException
@@ -85,6 +96,38 @@ public sealed class CodexWakeClient : IWakeClient
                 ? WakeStatus.Unavailable
                 : WakeStatus.Failed, ex.Message);
         }
+    }
+
+    private static async Task<WakeResult> PrepareAsync(
+        AppServerConnection connection, string threadId, CancellationToken ct)
+    {
+        await connection.SendAsync(new RpcRequest<InitializeParams>
+        {
+            Method = "initialize",
+            Id = 1,
+            Params = new InitializeParams
+            {
+                ClientInfo = new ClientInfo
+                {
+                    Name = "parley_cli", Title = "Parley CLI", Version = "1"
+                }
+            }
+        }, ct);
+        await connection.SendAsync(new RpcRequest<EmptyParams>
+            { Method = "initialized", Params = new EmptyParams() }, ct);
+        var initialized = await connection.ReadResponseAsync<RpcResponse>(1, ct);
+        if (HasError(initialized, out var initError))
+            return new(WakeStatus.Failed, initError);
+
+        await connection.SendAsync(new RpcRequest<EmptyParams>
+            { Method = "thread/loaded/list", Id = 2, Params = new EmptyParams() }, ct);
+        var loaded = await connection.ReadResponseAsync<RpcResponse<LoadedThreadsResult>>(2, ct);
+        if (HasError(loaded, out var loadedError))
+            return new(WakeStatus.Failed, loadedError);
+
+        return loaded.Result?.Data.Contains(threadId, StringComparer.Ordinal) == true
+            ? new(WakeStatus.Woken)
+            : new(WakeStatus.Unavailable);
     }
 
     private static async Task<string?> FindSocketAsync(CancellationToken ct)
@@ -123,7 +166,8 @@ public sealed class CodexWakeClient : IWakeClient
     }
 
     private static async Task<WakeResult> SubmitAsync(
-        AppServerConnection connection, string threadId, string notification, CancellationToken ct)
+        AppServerConnection connection, string threadId, string notification, string clientMessageId,
+        CancellationToken ct, Action<string?> setRolloutPath)
     {
         var nextId = 3;
         for (var attempt = 0; attempt < 2; attempt++)
@@ -139,6 +183,7 @@ public sealed class CodexWakeClient : IWakeClient
             if (HasError(read, out var readError)) return new(WakeStatus.Failed, readError);
 
             var thread = read.Result?.Thread;
+            setRolloutPath(thread?.Path);
             var activeTurnId = string.Equals(thread?.Status?.Type, "active", StringComparison.Ordinal)
                 ? FindActiveTurnInRolloutTail(thread?.Path)
                 : null;
@@ -169,6 +214,7 @@ public sealed class CodexWakeClient : IWakeClient
                     Params = new TurnSteerParams
                     {
                         ThreadId = threadId,
+                        ClientUserMessageId = clientMessageId,
                         Input = [new TextInput { Text = notification }],
                         ExpectedTurnId = activeTurnId
                     }
@@ -183,6 +229,7 @@ public sealed class CodexWakeClient : IWakeClient
                     Params = new TurnStartParams
                     {
                         ThreadId = threadId,
+                        ClientUserMessageId = clientMessageId,
                         Input = [new TextInput { Text = notification }]
                     }
                 }, ct);
@@ -195,9 +242,56 @@ public sealed class CodexWakeClient : IWakeClient
         return new(WakeStatus.Failed, "Codex thread changed state while waking it.");
     }
 
+    internal static string CreateClientMessageId(string threadId, string notification)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{threadId}\0{notification}"));
+        return $"parley-{Convert.ToHexString(bytes).ToLowerInvariant()}";
+    }
+
+    private static async Task<bool> WaitForClientMessageAsync(
+        string? path, string clientMessageId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+        for (var check = 0; check < 4; check++)
+        {
+            if (RolloutTailContainsClientMessage(path, clientMessageId)) return true;
+            if (check < 3) await Task.Delay(100, ct);
+        }
+        return false;
+    }
+
+    internal static bool RolloutTailContainsClientMessage(string? path, string clientMessageId)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+        foreach (var entry in ReadRolloutTail(path))
+        {
+            var payload = entry.Payload;
+            if (string.Equals(entry.Type, "event_msg", StringComparison.Ordinal)
+                && string.Equals(payload?.Type, "user_message", StringComparison.Ordinal)
+                && string.Equals(payload?.ClientId, clientMessageId, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     internal static string? FindActiveTurnInRolloutTail(string? path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        string? lastLifecycleType = null;
+        string? lastTurnId = null;
+        foreach (var entry in ReadRolloutTail(path))
+        {
+            if (!string.Equals(entry.Type, "event_msg", StringComparison.Ordinal)) continue;
+            var payload = entry.Payload;
+            if (payload?.Type is not ("task_started" or "task_complete")) continue;
+            lastLifecycleType = payload.Type;
+            lastTurnId = payload.TurnId;
+        }
+        return lastLifecycleType == "task_started" ? lastTurnId : null;
+    }
+
+    private static IReadOnlyList<CodexRolloutEntry> ReadRolloutTail(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return [];
 
         try
         {
@@ -210,12 +304,12 @@ public sealed class CodexWakeClient : IWakeClient
 
             if (start > 0) reader.ReadLine(); // discard the partial first record
 
-            string? lastLifecycleType = null;
-            string? lastTurnId = null;
+            var entries = new List<CodexRolloutEntry>();
             while (reader.ReadLine() is { } line)
             {
                 if (!line.Contains("task_started", StringComparison.Ordinal)
-                    && !line.Contains("task_complete", StringComparison.Ordinal)) continue;
+                    && !line.Contains("task_complete", StringComparison.Ordinal)
+                    && !line.Contains("user_message", StringComparison.Ordinal)) continue;
 
                 CodexRolloutEntry? entry;
                 try
@@ -227,22 +321,18 @@ public sealed class CodexWakeClient : IWakeClient
                     continue;
                 }
 
-                if (!string.Equals(entry?.Type, "event_msg", StringComparison.Ordinal)) continue;
-                var payload = entry?.Payload;
-                if (payload?.Type is not ("task_started" or "task_complete")) continue;
-                lastLifecycleType = payload.Type;
-                lastTurnId = payload.TurnId;
+                if (entry is not null) entries.Add(entry);
             }
 
-            return lastLifecycleType == "task_started" ? lastTurnId : null;
+            return entries;
         }
         catch (IOException)
         {
-            return null;
+            return [];
         }
         catch (UnauthorizedAccessException)
         {
-            return null;
+            return [];
         }
     }
 

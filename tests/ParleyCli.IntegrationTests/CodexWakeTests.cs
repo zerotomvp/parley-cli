@@ -1,4 +1,5 @@
 using ParleyCli.Integrations;
+using System.Text.Json;
 
 namespace ParleyCli.IntegrationTests;
 
@@ -103,6 +104,55 @@ public sealed class CodexWakeTests
         sent.ShouldSucceed();
         await server.WaitForSubmissionsAsync(2);
         Assert.Equal(2, server.SubmittedMethods.Count);
+        Assert.Contains("woke reviewer", sent.Stderr);
+    }
+
+    [Fact]
+    public async Task Timed_out_submission_is_reconciled_without_a_duplicate()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        await JoinPeers(cli, "reconciled");
+        var rollout = Path.Combine(cli.Store, "reconciled-rollout.jsonl");
+        File.WriteAllText(rollout, "");
+        await using var server = new FakeCodexServer(["recipient-sid"], threadPath: rollout,
+            timeoutSubmissions: 1, persistTimedOutSubmission: true);
+        cli.ConfigureRunningCodex(server.SocketPath);
+
+        var sent = await SendAuto(cli, "reconciled", "accepted wake");
+        sent.ShouldSucceed();
+        Assert.Single(server.SubmittedMethods);
+        Assert.Contains("woke reviewer", sent.Stderr);
+        var clientId = CodexWakeClient.CreateClientMessageId("recipient-sid",
+            WakeNotification.Create(1, "reconciled", "reviewer"));
+        Assert.True(CodexWakeClient.RolloutTailContainsClientMessage(rollout, clientId));
+    }
+
+    [Fact]
+    public async Task Timed_out_unpersisted_submission_retries_on_a_fresh_connection()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        await JoinPeers(cli, "timeout-retry");
+        var rollout = Path.Combine(cli.Store, "timeout-retry-rollout.jsonl");
+        File.WriteAllText(rollout, "");
+        await using var server = new FakeCodexServer(["recipient-sid"], threadPath: rollout,
+            timeoutSubmissions: 1);
+        cli.ConfigureRunningCodex(server.SocketPath);
+
+        var sent = await SendAuto(cli, "timeout-retry", "retry wake");
+        sent.ShouldSucceed();
+        await server.WaitForSubmissionsAsync(2);
+        Assert.Equal(2, server.ConnectionCount);
+        Assert.Equal(2, server.SubmittedMethods.Count);
+        var clientIds = server.SubmittedPayloads.Select(payload =>
+        {
+            using var document = JsonDocument.Parse(payload);
+            return document.RootElement.GetProperty("params")
+                .GetProperty("clientUserMessageId").GetString();
+        }).ToArray();
+        Assert.NotNull(clientIds[0]);
+        Assert.Equal(clientIds[0], clientIds[1]);
         Assert.Contains("woke reviewer", sent.Stderr);
     }
 

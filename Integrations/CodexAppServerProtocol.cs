@@ -86,6 +86,7 @@ internal sealed class AppServerTurn
 internal class TurnStartParams
 {
     public required string ThreadId { get; init; }
+    public string? ClientUserMessageId { get; init; }
     public required TextInput[] Input { get; init; }
 }
 
@@ -109,6 +110,9 @@ internal sealed class CodexRolloutEntry
 internal sealed class CodexRolloutPayload
 {
     public string? Type { get; init; }
+
+    [JsonPropertyName("client_id")]
+    public string? ClientId { get; init; }
 
     [JsonPropertyName("turn_id")]
     public string? TurnId { get; init; }

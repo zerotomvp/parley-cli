@@ -15,11 +15,14 @@ internal sealed class FakeCodexServer : IAsyncDisposable
     private readonly string[] _loadedThreads;
     private readonly string? _activeTurnId;
     private readonly string? _threadPath;
+    private readonly bool _persistTimedOutSubmission;
     private readonly string? _malformedAtMethod;
     private int _failSubmissions;
+    private int _timeoutSubmissions;
 
     public FakeCodexServer(string[] loadedThreads, string? activeTurnId = null, string? threadPath = null,
-        int failSubmissions = 0, string? malformedAtMethod = null)
+        int failSubmissions = 0, string? malformedAtMethod = null, int timeoutSubmissions = 0,
+        bool persistTimedOutSubmission = false)
     {
         SocketPath = Path.Combine(Path.GetTempPath(), $"p-{Guid.NewGuid():N}.sock");
         _loadedThreads = loadedThreads;
@@ -27,6 +30,8 @@ internal sealed class FakeCodexServer : IAsyncDisposable
         _threadPath = threadPath;
         _malformedAtMethod = malformedAtMethod;
         _failSubmissions = failSubmissions;
+        _timeoutSubmissions = timeoutSubmissions;
+        _persistTimedOutSubmission = persistTimedOutSubmission;
         _listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         _listener.Bind(new UnixDomainSocketEndPoint(SocketPath));
         _listener.Listen(4);
@@ -105,7 +110,7 @@ internal sealed class FakeCodexServer : IAsyncDisposable
                     continue;
                 }
 
-                object responseBody = method switch
+                object? responseBody = method switch
                 {
                     "initialize" => new { id, result = new { } },
                     "thread/loaded/list" => new { id, result = new { data = _loadedThreads } },
@@ -113,6 +118,7 @@ internal sealed class FakeCodexServer : IAsyncDisposable
                     "turn/start" or "turn/steer" => SubmissionResponse(id, method, payload),
                     _ => new { id, error = new { code = -32601, message = "unknown method" } }
                 };
+                if (responseBody is null) continue;
                 var bytes = JsonSerializer.SerializeToUtf8Bytes(responseBody);
                 await webSocket.SendAsync(bytes, WebSocketMessageType.Text, true, _stop.Token);
             }
@@ -147,12 +153,24 @@ internal sealed class FakeCodexServer : IAsyncDisposable
         };
     }
 
-    private object SubmissionResponse(int id, string method, string payload)
+    private object? SubmissionResponse(int id, string method, string payload)
     {
         lock (SubmittedMethods)
         {
             SubmittedMethods.Add(method);
             SubmittedPayloads.Add(payload);
+        }
+        if (Interlocked.Decrement(ref _timeoutSubmissions) >= 0)
+        {
+            if (_persistTimedOutSubmission && _threadPath is not null)
+            {
+                using var document = JsonDocument.Parse(payload);
+                var clientId = document.RootElement.GetProperty("params")
+                    .GetProperty("clientUserMessageId").GetString();
+                File.AppendAllText(_threadPath,
+                    $"{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"client_id\":\"{clientId}\"}}}}\n");
+            }
+            return null;
         }
         if (Interlocked.Decrement(ref _failSubmissions) >= 0)
             return new { id, error = new { code = -32000, message = "thread state changed" } };
