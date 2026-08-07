@@ -9,6 +9,10 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
 - add extension-based wake delivery ([`1431a53`](https://github.com/zerotomvp/parley-cli/commit/1431a5315870a55561b4f97e618cdbbd7f85fb39))
 
+### Bug fixes
+
+- allow slow wake acknowledgements ([`7bfeb23`](https://github.com/zerotomvp/parley-cli/commit/7bfeb2334643a10b17c9821de32e31e30fa2343f))
+
 ### Documentation
 
 - document Pi wake integration ([`af49583`](https://github.com/zerotomvp/parley-cli/commit/af49583a76ec0288a487be7d963fb63d6d55d8bc))
