@@ -1,3 +1,5 @@
+using ParleyCli.Integrations;
+
 namespace ParleyCli.IntegrationTests;
 
 public sealed class CodexWakeTests
@@ -28,7 +30,8 @@ public sealed class CodexWakeTests
         if (OperatingSystem.IsWindows()) return;
         using var cli = new CliSandbox();
         await JoinPeers(cli, "loaded");
-        await using var server = new FakeCodexServer(["recipient-sid"], activeTurn);
+        var rollout = activeTurn is null ? null : WriteActiveRollout(cli, activeTurn);
+        await using var server = new FakeCodexServer(["recipient-sid"], activeTurn, rollout);
         cli.ConfigureRunningCodex(server.SocketPath);
 
         var sent = await SendAuto(cli, "loaded", "wake me");
@@ -42,6 +45,49 @@ public sealed class CodexWakeTests
         if (activeTurn is not null)
             Assert.Contains($"\"expectedTurnId\":\"{activeTurn}\"", server.SubmittedPayloads.Single());
         Assert.Contains("woke reviewer", sent.Stderr);
+        Assert.Single(server.ReadPayloads);
+        Assert.Contains("\"includeTurns\":false", server.ReadPayloads.Single());
+    }
+
+    [Fact]
+    public async Task Active_thread_falls_back_to_full_history_when_rollout_tail_is_unavailable()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var cli = new CliSandbox();
+        await JoinPeers(cli, "fallback");
+        await using var server = new FakeCodexServer(["recipient-sid"], "turn-456");
+        cli.ConfigureRunningCodex(server.SocketPath);
+
+        var sent = await SendAuto(cli, "fallback", "fallback wake");
+        sent.ShouldSucceed();
+        await server.WaitForSubmissionsAsync(1);
+        Assert.Equal("turn/steer", server.SubmittedMethods.Single());
+        Assert.Equal(2, server.ReadPayloads.Count);
+        Assert.Contains("\"includeTurns\":false", server.ReadPayloads[0]);
+        Assert.Contains("\"includeTurns\":true", server.ReadPayloads[1]);
+    }
+
+    [Fact]
+    public void Rollout_tail_requires_the_latest_lifecycle_event_to_be_an_active_turn()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(path,
+            [
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"turn-1\"}}",
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn-1\"}}"
+            ]);
+            Assert.Null(CodexWakeClient.FindActiveTurnInRolloutTail(path));
+
+            File.AppendAllText(path,
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"turn-2\"}}\n");
+            Assert.Equal("turn-2", CodexWakeClient.FindActiveTurnInRolloutTail(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -100,4 +146,12 @@ public sealed class CodexWakeTests
     private static Task<CliResult> SendAuto(CliSandbox cli, string channel, string message) =>
         cli.RunAsync("send", channel, "--as", "author", "--sid", "sender-sid",
             "--to", "reviewer", "-m", message);
+
+    private static string WriteActiveRollout(CliSandbox cli, string turnId)
+    {
+        var path = Path.Combine(cli.Store, $"rollout-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(path,
+            $"{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_started\",\"turn_id\":\"{turnId}\"}}}}\n");
+        return path;
+    }
 }

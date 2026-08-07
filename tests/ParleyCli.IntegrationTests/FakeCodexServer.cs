@@ -14,15 +14,17 @@ internal sealed class FakeCodexServer : IAsyncDisposable
     private readonly Task _serve;
     private readonly string[] _loadedThreads;
     private readonly string? _activeTurnId;
+    private readonly string? _threadPath;
     private readonly string? _malformedAtMethod;
     private int _failSubmissions;
 
-    public FakeCodexServer(string[] loadedThreads, string? activeTurnId = null,
+    public FakeCodexServer(string[] loadedThreads, string? activeTurnId = null, string? threadPath = null,
         int failSubmissions = 0, string? malformedAtMethod = null)
     {
         SocketPath = Path.Combine(Path.GetTempPath(), $"p-{Guid.NewGuid():N}.sock");
         _loadedThreads = loadedThreads;
         _activeTurnId = activeTurnId;
+        _threadPath = threadPath;
         _malformedAtMethod = malformedAtMethod;
         _failSubmissions = failSubmissions;
         _listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
@@ -34,6 +36,7 @@ internal sealed class FakeCodexServer : IAsyncDisposable
     public string SocketPath { get; }
     public List<string> SubmittedMethods { get; } = [];
     public List<string> SubmittedPayloads { get; } = [];
+    public List<string> ReadPayloads { get; } = [];
     public int ConnectionCount;
     public Exception? LastError;
 
@@ -106,20 +109,7 @@ internal sealed class FakeCodexServer : IAsyncDisposable
                 {
                     "initialize" => new { id, result = new { } },
                     "thread/loaded/list" => new { id, result = new { data = _loadedThreads } },
-                    "thread/read" => new
-                    {
-                        id,
-                        result = new
-                        {
-                            thread = new
-                            {
-                                id = _loadedThreads.FirstOrDefault(),
-                                turns = _activeTurnId is null
-                                    ? Array.Empty<object>()
-                                    : [new { id = _activeTurnId, status = "inProgress" }]
-                            }
-                        }
-                    },
+                    "thread/read" => ThreadReadResponse(id, payload),
                     "turn/start" or "turn/steer" => SubmissionResponse(id, method, payload),
                     _ => new { id, error = new { code = -32601, message = "unknown method" } }
                 };
@@ -131,6 +121,30 @@ internal sealed class FakeCodexServer : IAsyncDisposable
         catch (WebSocketException) { }
         catch (IOException) { }
         catch (Exception ex) { LastError = ex; }
+    }
+
+    private object ThreadReadResponse(int id, string payload)
+    {
+        lock (ReadPayloads) ReadPayloads.Add(payload);
+        using var document = JsonDocument.Parse(payload);
+        var includeTurns = document.RootElement.GetProperty("params")
+            .TryGetProperty("includeTurns", out var include) && include.GetBoolean();
+        return new
+        {
+            id,
+            result = new
+            {
+                thread = new
+                {
+                    id = _loadedThreads.FirstOrDefault(),
+                    path = _threadPath,
+                    status = new { type = _activeTurnId is null ? "idle" : "active" },
+                    turns = includeTurns && _activeTurnId is not null
+                        ? new object[] { new { id = _activeTurnId, status = "inProgress" } }
+                        : []
+                }
+            }
+        };
     }
 
     private object SubmissionResponse(int id, string method, string payload)

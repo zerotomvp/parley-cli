@@ -15,6 +15,7 @@ namespace ParleyCli.Integrations;
 /// </summary>
 public sealed class CodexWakeClient : IWakeClient
 {
+    private const int RolloutTailBytes = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -124,22 +125,41 @@ public sealed class CodexWakeClient : IWakeClient
     private static async Task<WakeResult> SubmitAsync(
         AppServerConnection connection, string threadId, string notification, CancellationToken ct)
     {
+        var nextId = 3;
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var readId = 3 + attempt * 2;
+            var readId = nextId++;
             await connection.SendAsync(new RpcRequest<ThreadReadParams>
             {
                 Method = "thread/read",
                 Id = readId,
-                Params = new ThreadReadParams { ThreadId = threadId, IncludeTurns = true }
+                Params = new ThreadReadParams { ThreadId = threadId, IncludeTurns = false }
             }, ct);
             var read = await connection.ReadResponseAsync<RpcResponse<ThreadReadResult>>(readId, ct);
             if (HasError(read, out var readError)) return new(WakeStatus.Failed, readError);
 
-            var activeTurnId = read.Result?.Thread?.Turns
-                .LastOrDefault(t => t.Status == "inProgress")?.Id;
+            var thread = read.Result?.Thread;
+            var activeTurnId = string.Equals(thread?.Status?.Type, "active", StringComparison.Ordinal)
+                ? FindActiveTurnInRolloutTail(thread?.Path)
+                : null;
 
-            var submitId = readId + 1;
+            if (!string.Equals(thread?.Status?.Type, "idle", StringComparison.Ordinal)
+                && activeTurnId is null)
+            {
+                var historyId = nextId++;
+                await connection.SendAsync(new RpcRequest<ThreadReadParams>
+                {
+                    Method = "thread/read",
+                    Id = historyId,
+                    Params = new ThreadReadParams { ThreadId = threadId, IncludeTurns = true }
+                }, ct);
+                var history = await connection.ReadResponseAsync<RpcResponse<ThreadReadResult>>(historyId, ct);
+                if (HasError(history, out var historyError)) return new(WakeStatus.Failed, historyError);
+                activeTurnId = history.Result?.Thread?.Turns
+                    .LastOrDefault(t => t.Status == "inProgress")?.Id;
+            }
+
+            var submitId = nextId++;
             if (activeTurnId is not null)
             {
                 await connection.SendAsync(new RpcRequest<TurnSteerParams>
@@ -173,6 +193,57 @@ public sealed class CodexWakeClient : IWakeClient
         }
 
         return new(WakeStatus.Failed, "Codex thread changed state while waking it.");
+    }
+
+    internal static string? FindActiveTurnInRolloutTail(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var start = Math.Max(0, stream.Length - RolloutTailBytes);
+            stream.Seek(start, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
+                bufferSize: 4096, leaveOpen: false);
+
+            if (start > 0) reader.ReadLine(); // discard the partial first record
+
+            string? lastLifecycleType = null;
+            string? lastTurnId = null;
+            while (reader.ReadLine() is { } line)
+            {
+                if (!line.Contains("task_started", StringComparison.Ordinal)
+                    && !line.Contains("task_complete", StringComparison.Ordinal)) continue;
+
+                CodexRolloutEntry? entry;
+                try
+                {
+                    entry = JsonSerializer.Deserialize(line, ParleyJsonContext.Default.CodexRolloutEntry);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(entry?.Type, "event_msg", StringComparison.Ordinal)) continue;
+                var payload = entry?.Payload;
+                if (payload?.Type is not ("task_started" or "task_complete")) continue;
+                lastLifecycleType = payload.Type;
+                lastTurnId = payload.TurnId;
+            }
+
+            return lastLifecycleType == "task_started" ? lastTurnId : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static bool HasError(RpcResponse response, out string? error)

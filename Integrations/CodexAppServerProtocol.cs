@@ -67,7 +67,14 @@ internal sealed class ThreadReadResult
 internal sealed class AppServerThread
 {
     public string? Id { get; init; }
+    public string? Path { get; init; }
+    public AppServerThreadStatus? Status { get; init; }
     public AppServerTurn[] Turns { get; init; } = [];
+}
+
+internal sealed class AppServerThreadStatus
+{
+    public string? Type { get; init; }
 }
 
 internal sealed class AppServerTurn
@@ -91,4 +98,18 @@ internal sealed class TextInput
 {
     public string Type { get; init; } = "text";
     public required string Text { get; init; }
+}
+
+internal sealed class CodexRolloutEntry
+{
+    public string? Type { get; init; }
+    public CodexRolloutPayload? Payload { get; init; }
+}
+
+internal sealed class CodexRolloutPayload
+{
+    public string? Type { get; init; }
+
+    [JsonPropertyName("turn_id")]
+    public string? TurnId { get; init; }
 }
