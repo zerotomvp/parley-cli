@@ -249,7 +249,7 @@ Install Parley's Pi package from the same release as the CLI, then restart Pi (o
 run `/reload` in an existing session):
 
 ```bash
-pi install git:github.com/zerotomvp/parley-cli@v1.3.0
+pi install git:github.com/zerotomvp/parley-cli@v1.3.1
 ```
 
 The package contributes `extensions/parley.ts`. On every Pi session start, the

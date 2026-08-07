@@ -3,6 +3,12 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.3.1] - 2026-08-07
+
+### Bug fixes
+
+- reject cross-harness role claims ([`9531127`](https://github.com/zerotomvp/parley-cli/commit/953112778db3816a86b9482255a6bf0e172e5287))
+
 ## [1.3.0] - 2026-08-07
 
 ### Features
@@ -138,3 +144,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.2.0]: https://github.com/zerotomvp/parley-cli/compare/v1.1.2...v1.2.0
 [1.2.1]: https://github.com/zerotomvp/parley-cli/compare/v1.2.0...v1.2.1
 [1.3.0]: https://github.com/zerotomvp/parley-cli/compare/v1.2.1...v1.3.0
+[1.3.1]: https://github.com/zerotomvp/parley-cli/compare/v1.3.0...v1.3.1
