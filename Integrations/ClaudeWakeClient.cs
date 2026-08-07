@@ -10,7 +10,7 @@ public sealed class ClaudeWakeClient : IWakeClient
         WakePipe.SendAsync("claude", sid, null, ct, TimeSpan.FromMilliseconds(500));
 
     public async Task<WakeResult> WakeAsync(string sid, string notification, CancellationToken ct) =>
-        await WakePipe.SendAsync("claude", sid, notification, ct, TimeSpan.FromMilliseconds(500));
+        await WakePipe.SendAsync("claude", sid, notification, ct, TimeSpan.FromSeconds(2));
 
     public Task<WakeResult> RebindAsync(string oldSid, string newSid, CancellationToken ct) =>
         WakePipe.SendAsync("claude", oldSid, RebindPrefix + newSid, ct, TimeSpan.FromSeconds(2));
