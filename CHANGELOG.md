@@ -3,6 +3,16 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.3.0] - 2026-08-07
+
+### Features
+
+- add extension-based wake delivery ([`1431a53`](https://github.com/zerotomvp/parley-cli/commit/1431a5315870a55561b4f97e618cdbbd7f85fb39))
+
+### Documentation
+
+- document Pi wake integration ([`af49583`](https://github.com/zerotomvp/parley-cli/commit/af49583a76ec0288a487be7d963fb63d6d55d8bc))
+
 ## [1.2.1] - 2026-08-07
 
 ### Bug fixes
@@ -123,3 +133,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.1.2]: https://github.com/zerotomvp/parley-cli/compare/v1.1.1...v1.1.2
 [1.2.0]: https://github.com/zerotomvp/parley-cli/compare/v1.1.2...v1.2.0
 [1.2.1]: https://github.com/zerotomvp/parley-cli/compare/v1.2.0...v1.2.1
+[1.3.0]: https://github.com/zerotomvp/parley-cli/compare/v1.2.1...v1.3.0
