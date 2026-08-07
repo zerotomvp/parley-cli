@@ -7,7 +7,7 @@ through a person.
 
 Parley has no daemon of its own. Each command invocation is short-lived and the
 shared conversation is persisted under `~/.parley/channels/` (or `PARLEY_HOME`). An
-optional Claude Code channel subprocess or Codex app-server can wake the exact
+optional harness integrations for Claude Code, Pi, and Codex can wake the exact
 session that currently owns a recipient role.
 
 ## Contents
@@ -20,6 +20,7 @@ session that currently owns a recipient role.
 - [Scope and limitations](#scope-and-limitations)
 - [Acknowledging longer work](#acknowledging-longer-work)
 - [Claude Code: native channel wake-up](#claude-code-native-channel-wake-up)
+- [Pi: extension wake-up](#pi-extension-wake-up)
 - [Codex: durable delivery with app-server wake-up](#codex-durable-delivery-with-app-server-wake-up)
 - [Ending an exchange](#ending-an-exchange)
 - [Commands](#commands)
@@ -124,13 +125,14 @@ Parley's durable filesystem protocol works with any agent that can invoke a CLI 
 share `PARLEY_HOME`. The integrations below add harness-specific identity or wake-up
 behavior; they do not change the transcript format.
 
-| Coding agent | Support | How it works |
-|---|---|---|
-| [OpenAI Codex CLI](https://github.com/openai/codex) | First-class | `join --wake detect` identifies the current thread from `CODEX_THREAD_ID` and records Codex wake-up for that role. With a persistent app-server, sends start or steer the exact loaded recipient thread; otherwise use `recv --wait`. |
-| [Anthropic Claude Code](https://code.claude.com/docs/en/overview) | First-class | `join --wake detect` identifies the current session from `CLAUDE_CODE_SESSION_ID` and records Claude wake-up for that role. The optional native channel injects wake notices into the exact running session; otherwise use `recv --wait`. |
-| All other coding agents | Protocol-compatible | Join with `--wake never`, supply a stable SID with `--sid` or `PARLEY_ID` (the role name is the final fallback), share `PARLEY_HOME`, and use `recv --last-seen <seq> --wait`. |
+| Coding agent | Support | Wake value | Session identity | Wake integration |
+|---|---|---|---|---|
+| [OpenAI Codex CLI](https://github.com/openai/codex) | First-class | `codex` | `CODEX_THREAD_ID` | A persistent app-server starts or steers the exact loaded thread. |
+| [Anthropic Claude Code](https://code.claude.com/docs/en/overview) | First-class | `claude` | `CLAUDE_CODE_SESSION_ID` | A native channel injects the notice into the exact running session. |
+| [Pi](https://pi.dev) | First-class | `pi` | `PI_CODING_AGENT=true` + `PI_SESSION_ID` | The Parley extension starts or steers the exact running session. |
+| All other coding agents | Protocol-compatible | `never` | `--sid`, `PARLEY_ID`, or role fallback | Use a foreground `recv --last-seen <seq> --wait`. |
 
-`join` defaults to `--wake detect`, resolving the active Codex or Claude environment
+`join` defaults to `--wake detect`, resolving the active Codex, Claude, or Pi environment
 once and recording that concrete wake type with the role. Detection errors outside
 those harnesses; manual and other-agent sessions must explicitly use `--wake never`.
 
@@ -138,8 +140,9 @@ those harnesses; manual and other-agent sessions must explicitly use `--wake nev
 
 A role is the human-readable address claimed with `--as`, such as `author` or
 `reviewer`. A session ID is the ownership token behind that role. Parley detects the
-session ID from `CODEX_THREAD_ID`, then `CLAUDE_CODE_SESSION_ID`; `--sid` and
-`PARLEY_ID` provide explicit overrides, and the role is used as the fallback.
+session ID from the supported-agent table in its listed order. `--sid` and
+`PARLEY_ID` provide higher-priority explicit overrides, and the role is used as the
+fallback.
 
 Distinct sessions must use distinct roles. A role's wake type is immutable, including
 under `--force`; use another role name when changing harnesses. A claim held by
@@ -156,7 +159,7 @@ Use `parley who <channel>` to inspect current role ownership.
 - Parley never sends conversations, message bodies, roles, session IDs, channel
   state, or diagnostics to a remote service. Its only default internet access is a
   cached request to GitHub for the latest public release, described under
-  [Update notices](#update-notices). Claude and Codex wake integrations communicate
+  [Update notices](#update-notices). Claude, Pi, and Codex wake integrations communicate
   only with their local harness processes.
 - Channel files are plaintext and have no built-in authentication, authorization,
   or encryption. Protect the storage directory with normal filesystem permissions
@@ -240,6 +243,41 @@ shutdown. If the installed Claude version lacks agent discovery—or the process
 identity does not match—Parley does not guess; normal ownership checks remain in
 force and `join --force` is the explicit recovery path.
 
+## Pi: extension wake-up
+
+Install Parley's Pi package from the same release as the CLI, then restart Pi (or
+run `/reload` in an existing session):
+
+```bash
+pi install git:github.com/zerotomvp/parley-cli@v1.3.0
+```
+
+The package contributes `extensions/parley.ts`. On every Pi session start, the
+extension reads Pi's session ID directly from the session manager and starts
+`parley pi-channel` as its private stdio helper. The helper exposes a same-user
+named pipe derived from `PARLEY_HOME` and that exact session ID. A send to a role
+registered with `wake: pi` connects directly to that pipe; no process scanning,
+endpoint registry, or remote service is involved.
+
+The extension submits the short notice with Pi's `sendMessage` API using
+`triggerTurn: true` and `deliverAs: "steer"`. An idle session starts a turn; an
+active session receives the notice as a steering message. The helper acknowledges
+only after Pi synchronously accepts the submission. The notice itself does not
+advance a Parley cursor: the model must still run the displayed nonblocking
+`recv --last-seen` command to consume durable delivery.
+
+Pi supplies `PI_SESSION_ID` to shell commands, so the ordinary command is enough:
+
+```bash
+parley join review-xyzab --as reviewer
+```
+
+Session replacement (`/new`, resume, or fork) shuts down the old helper and starts
+one keyed to the new session. Compaction retains the same session and endpoint.
+If the extension is missing, cannot find `parley` on `PATH`, or is still from an
+older release, `join` reports the unavailable endpoint and prints the foreground
+listener fallback.
+
 ## Codex: durable delivery with app-server wake-up
 
 ### Why Parley does not rely on a blocking receive alone
@@ -307,12 +345,12 @@ WSL for the same persistent-service setup.
 
 ### Wake and wait behavior
 
-`join` defaults to `--wake detect`, which resolves to `claude` or `codex` from the
-current harness environment and stores that concrete type with the role. It errors
-when neither environment is present; pass `join --wake never` for filesystem-only
-participants. Explicit `--wake claude` and `--wake codex` are available when runtime
-detection is unavailable. A role's resolved wake type cannot change, even with
-`--force`.
+`join` defaults to `--wake detect`, which resolves the current harness using the
+supported-agent table and stores that concrete type with the role. It errors
+when no supported harness environment is present; pass `join --wake never` for filesystem-only
+participants. The supported-agent table lists the explicit wake values available
+when runtime detection is unavailable. A role's resolved wake type cannot change,
+even with `--force`.
 
 Each send reads the destination role's wake type and constructs only that transport.
 There is no sequential harness probing and no send-side wake option. Wake failure
@@ -324,10 +362,10 @@ notices while preserving recoverable delivery.
 `join` reports the persisted wake type separately from current endpoint availability,
 then prints the appropriate automatic-wake or foreground-listener instructions:
 
-- With automatic Claude or Codex wake available, do not maintain a blocking
+- With automatic Claude, Pi, or Codex wake available, do not maintain a blocking
   listener. An incoming send injects an event or starts/steers the loaded thread. Use a plain
   `recv --last-seen <seq>` for catch-up or recovery.
-- Without a matching loaded Codex thread, use an unbounded foreground
+- Without a live endpoint for the selected integration, use an unbounded foreground
   `recv --last-seen <seq> --wait` while expecting a reply. Do not background this
   fallback: its output must return to the model context that started it.
 
@@ -366,6 +404,7 @@ using the wake or listener mode reported by `join` if more work may arrive.
 | `parley show <channel> <seq>` | Print one message in full. |
 | `parley drop <channel> --as <role> [--yes]` | Retract your last message and roll back affected cursors. |
 | `parley claude-channel` | Run the one-way Claude Code MCP wake channel over stdio. |
+| `parley pi-channel` | Run the Pi extension wake bridge over JSONL stdio. |
 | `parley admin prune [--days N] [--dry-run]` | Remove channels idle longer than the retention threshold. |
 
 The message body comes from `-m <text>` or stdin, which is preferable for complete
@@ -423,13 +462,15 @@ export PARLEY_HOME=/path/to/parley-state
 The CLI targets .NET 10 and is designed for Linux, macOS, and Windows. The first
 self-contained release targets `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`,
 `win-x64`, and `win-arm64`. Claude automatic wake requires its channel subprocess;
-Codex automatic wake requires a running app-server and a loaded thread. All
-filesystem-only messaging works without either integration.
+Pi automatic wake requires the Parley extension; Codex automatic wake requires a
+running app-server and a loaded thread. All filesystem-only messaging works without
+these integrations.
 
 ## Update notices
 
-Update checks are enabled by default. On `join` and `claude-channel` startup, Parley
-checks GitHub's public latest-release endpoint at most once every 24 hours. The check
+Update checks are enabled by default. On `join`, `claude-channel`, and `pi-channel`
+startup, Parley checks GitHub's public latest-release endpoint at most once every 24
+hours. The check
 is failure-silent, has a two-second timeout, never runs on the latency-sensitive
 `send` or `recv` paths, and stores only release metadata in
 `update-check.json` beside the platform application-data config. No channel or
@@ -494,11 +535,10 @@ The current session's detected wake type must match the role's stored type. Do n
 force a role merely to bypass a collision: the previous owner immediately loses
 permission to send and receive as that role.
 
-### Claude or Codex did not wake
+### A harness did not wake
 
-The transcript message is still delivered. Receive it normally. For Claude, check
-that the Parley channel was loaded when the session started. For Codex, check that
-the app-server is running and the intended thread is loaded. In both cases, confirm
+The transcript message is still delivered. Receive it normally. Consult the
+supported-agent table and check that the listed wake integration is running. Confirm
 the roster SID shown by `parley who` matches the session. `join` prints the currently
 detected wake mode; otherwise use `recv ... --last-seen <seq> --wait` as fallback.
 

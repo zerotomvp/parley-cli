@@ -1,7 +1,7 @@
 # Parley technical specification
 
 This document describes Parley's persisted model, protocol invariants, concurrency
-behavior, and optional Codex app-server integration. User-facing commands and
+behavior, and optional harness wake integrations. User-facing commands and
 operating guidance live in [`README.md`](README.md).
 
 ## Process and storage model
@@ -33,8 +33,17 @@ the encoding ambiguous and permit traversal names such as `.` and `..`.
 Each participant has two identifiers:
 
 - `role` is the explicit, addressable name supplied with `--as`.
-- `sid` is the session ownership token and cursor key. Resolution order is
-  `--sid`, `PARLEY_ID`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, then role.
+- `sid` is the session ownership token and cursor key. Explicit `--sid` and
+  `PARLEY_ID` take precedence, followed by the first matching catalog row and then
+  the role fallback.
+
+Harness-specific metadata is centralized in one ordered catalog:
+
+| Harness | Persisted wake | Detection / session ID | Endpoint subject | Wake client |
+|---|---|---|---|---|
+| Codex | `codex` | `CODEX_THREAD_ID` | thread | app-server client |
+| Claude Code | `claude` | `CLAUDE_CODE_SESSION_ID` | session | native-channel pipe client |
+| Pi | `pi` | `PI_CODING_AGENT=true` / `PI_SESSION_ID` | session | extension-bridge pipe client |
 
 There is no implicit role or channel. A session must claim its role with `join`
 before sending or receiving. A free role may be claimed, and joining an already-held
@@ -42,9 +51,10 @@ role from the same SID is idempotent. A different SID is rejected unless `--forc
 is present. Send and receive re-resolve the roster and require the caller's SID to
 own its claimed role.
 
-`join --wake detect` (the default) resolves `CODEX_THREAD_ID` to `codex` or
-`CLAUDE_CODE_SESSION_ID` to `claude`; it errors if neither exists. Explicit values
-are `codex`, `claude`, and `never`. Only the resolved concrete value is persisted.
+`join --wake detect` (the default) selects the first catalog row whose environment
+variable is non-empty; a dedicated process marker takes precedence over session IDs
+inherited from a parent harness. Detection errors if no row matches. An explicit wake
+accepts a catalog value or `never`. Only the resolved concrete value is persisted.
 It is immutable for a role: a forced reclaim may replace its SID only when the wake
 type matches. A participant changing harness must use another role name.
 
@@ -79,13 +89,13 @@ unless the platform application-data `parley-cli/config.json` contains a boolean
 `trace: true`, or `PARLEY_TRACE` is explicitly set to `1`, `true`, `yes`, or `on`.
 When the environment variable is present it overrides config; any non-opt-in value
 disables tracing. A missing config file is the disabled default; an unreadable or
-malformed config disables tracing and emits a warning. Claude
+malformed config disables tracing and emits a warning. Harness
 traces contain lifecycle metadata, identifiers, frame lengths, timing, status, and
 exceptions, but never transcript message bodies or raw MCP frames. Enabling tracing
 does not alter wake timeouts, acknowledgement rules, retries, or fallback behavior.
 
 Release discovery is enabled by default and is Parley's only direct internet
-behavior. Eligible lifecycle invocations (`join` and `claude-channel`) query GitHub's
+behavior. Eligible lifecycle invocations (`join`, `claude-channel`, and `pi-channel`) query GitHub's
 public latest-release endpoint no more than once per 24 hours with a bounded timeout.
 The request contains no channel, transcript, role, SID, message, or diagnostics data.
 Its only Parley-specific request metadata is the public current version in the
@@ -201,6 +211,26 @@ on failure—looks up the exact process registration and asks that registered en
 to accept the current SID as an alias. The registration is updated after acknowledgement
 and the new-channel membership is written under the current Claude UUID.
 
+For a recipient registered with `wake: pi`:
+
+1. the repository's Pi extension starts `parley pi-channel --sid <session-id>` on
+   `session_start`, using `ctx.sessionManager.getSessionId()` rather than relying on
+   a retained shell environment;
+2. the helper binds a current-user-only named pipe derived deterministically from
+   canonical `PARLEY_HOME` and the SID, without an endpoint registry;
+3. `join` and `send` connect only to that exact pipe, with an empty frame serving as
+   the endpoint probe;
+4. a wake frame is relayed to the extension as JSONL over stdout;
+5. the extension calls `pi.sendMessage` with `triggerTurn: true` and
+   `deliverAs: "steer"`, then returns a JSONL acknowledgement;
+6. only that acknowledgement produces the named-pipe `ok`; synchronous rejection,
+   helper exit, or timeout is reported as best-effort wake failure.
+
+The extension never invokes `recv` and stores no Parley delivery state. Pi session
+replacement shuts down the old child and starts a helper for the replacement SID;
+compaction keeps the current helper. Closing the extension's stdin cancels outstanding
+pipe work and removes the endpoint, so stale registrations cannot accumulate.
+
 For a recipient registered with `wake: codex`:
 
 1. resolves every destination role's current owner SID from the roster;
@@ -224,8 +254,8 @@ explicitly prohibits adding `--wait`, appending `&`, or starting a persistent li
 because those forms can advance a cursor without returning output to model context.
 The notice includes the correct channel, role, and model checkpoint. The actual
 message body remains solely
-in the durable transcript. A missing Claude channel, Codex executable, stopped
-daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
+in the durable transcript. A missing harness channel or extension, Codex executable,
+stopped daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
 non-fatal unavailable-endpoint note. A failure after a live Claude connection or
 loaded Codex SID match is reported distinctly. Wake failure cannot remove or duplicate the durable
 message, though a transport-level retry may produce a recognizable duplicate wake
@@ -236,7 +266,7 @@ availability as separate facts before printing operating guidance. Its probe res
 informational; send later attempts the role's stored transport directly. A fallback
 receive must remain a foreground blocking listener so its output reaches model context.
 
-A successful `recv` emits one checkpoint footer. For `wake: claude` and `wake: codex`
+A successful `recv` emits one checkpoint footer. For any cataloged harness wake
 it says only to await the next wake and forbids a listener. For `wake: never`, it
 includes the next `recv --wait` command marked foreground-only. It does not emit a
 redundant message-count success line.
@@ -255,7 +285,7 @@ without explicit confirmation.
 Parley has no settings or secrets layer. Dependency injection carries only the
 logging switch and `ChannelStore`.
 
-All persisted, CLI-output, Claude MCP, and Codex JSON shapes use compile-time generated
+All persisted, CLI-output, harness-channel, and Codex JSON shapes use compile-time generated
 `System.Text.Json` metadata. This keeps protocol types explicit and makes Parley's
 own serialization paths safe for single-file and trim analysis without reflection
 fallback.
