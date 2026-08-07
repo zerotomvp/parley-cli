@@ -88,6 +88,56 @@ public sealed class BehaviorTests
     }
 
     [Fact]
+    public async Task Join_rejects_cross_harness_force_reclaim_even_when_requested_wake_matches_role()
+    {
+        using var cli = new CliSandbox();
+        (await cli.RunAsync("join", "harness-claim", "--as", "reviewer", "--sid", "claude-owner",
+            "--wake", "claude")).ShouldSucceed();
+
+        var takeover = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["CODEX_THREAD_ID"] = "codex-takeover" },
+            "join", "harness-claim", "--as", "reviewer", "--wake", "claude", "--force");
+
+        Assert.Equal(1, takeover.ExitCode);
+        Assert.Contains("active harness is codex", takeover.Stderr);
+        Assert.Contains("cannot join with --wake claude", takeover.Stderr);
+        Assert.Contains("Join as another role", takeover.Stderr);
+        Assert.Contains("new channel", takeover.Stderr);
+
+        var participant = await cli.RunAsync("who", "harness-claim", "--json");
+        participant.ShouldSucceed();
+        Assert.Contains("\"sid\":\"claude-owner\"", participant.Stdout);
+    }
+
+    [Fact]
+    public async Task Join_allows_force_reclaim_from_the_matching_detected_harness()
+    {
+        using var cli = new CliSandbox();
+        (await cli.RunAsync("join", "same-harness-claim", "--as", "reviewer", "--sid", "old-claude",
+            "--wake", "claude")).ShouldSucceed();
+
+        var reclaim = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["CLAUDE_CODE_SESSION_ID"] = "new-claude" },
+            "join", "same-harness-claim", "--as", "reviewer", "--wake", "claude", "--force");
+
+        reclaim.ShouldSucceed();
+        Assert.Contains("reclaimed role", reclaim.Stderr);
+    }
+
+    [Fact]
+    public async Task Join_rejects_an_explicit_foreign_wake_for_a_new_role_when_harness_is_detectable()
+    {
+        using var cli = new CliSandbox();
+        var result = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["CODEX_THREAD_ID"] = "codex-session" },
+            "join", "foreign-wake", "--as", "reviewer", "--wake", "claude");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("active harness is codex", result.Stderr);
+        Assert.Contains("inform the other participants", result.Stderr);
+    }
+
+    [Fact]
     public async Task Join_detect_requires_a_supported_harness_environment()
     {
         using var cli = new CliSandbox();

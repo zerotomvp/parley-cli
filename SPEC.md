@@ -56,7 +56,12 @@ variable is non-empty; a dedicated process marker takes precedence over session 
 inherited from a parent harness. Detection errors if no row matches. An explicit wake
 accepts a catalog value or `never`. Only the resolved concrete value is persisted.
 It is immutable for a role: a forced reclaim may replace its SID only when the wake
-type matches. A participant changing harness must use another role name.
+type matches. In addition, when the joining process clearly exposes a supported
+harness through the catalog environment, an explicit catalog wake must match that
+detected harness. Supplying the old owner's wake value cannot authorize a
+cross-harness reclaim. A participant changing harness must use another role name or
+new channel and inform the other participants. `wake: never` remains an explicit
+filesystem-only choice and is not treated as a harness identity.
 
 On forced reclaim, a new SID with no cursor is initialized to the current transcript
 end. This makes a restarted participant resume with subsequent messages rather than

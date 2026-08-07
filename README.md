@@ -533,7 +533,10 @@ parley join <channel> --as <role> --force
 
 The current session's detected wake type must match the role's stored type. Do not
 force a role merely to bypass a collision: the previous owner immediately loses
-permission to send and receive as that role.
+permission to send and receive as that role. Parley rejects an explicit wake value
+that conflicts with a clearly detected active harness, so copying the old role's
+`--wake` value cannot make a cross-harness takeover valid. Join under another role
+or use a new channel, then inform the other participants of the change.
 
 ### A harness did not wake
 

@@ -47,6 +47,7 @@ public static class JoinCommand
             var force = pr.GetValue(forceOpt);
             var requestedWake = pr.GetValue(wakeOpt)!;
             var wake = ResolveWake(requestedWake);
+            EnsureWakeMatchesActiveHarness(wake);
 
             ClaudeProcessCorrelation? claudeProcess = null;
             WakeResult? claudeEndpoint = null;
@@ -114,5 +115,18 @@ public static class JoinCommand
         if (HarnessCatalog.Detect() is { } harness) return harness.Wake;
         throw new ArgumentException(
             "No supported harness detected. Pass --wake never for a manual session.");
+    }
+
+    private static void EnsureWakeMatchesActiveHarness(string wake)
+    {
+        if (wake == "never" || HarnessCatalog.Detect() is not { } activeHarness
+            || activeHarness.Wake == wake)
+            return;
+
+        throw new ArgumentException(
+            $"The active harness is {activeHarness.Wake}, so it cannot join with --wake {wake}. " +
+            "Wake type identifies the session's actual harness; matching an existing role's wake type " +
+            "does not make a cross-harness takeover valid. Join as another role or use a new channel, " +
+            "and inform the other participants of the change.");
     }
 }
