@@ -3,6 +3,12 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [1.3.2] - 2026-08-08
+
+### Bug fixes
+
+- diagnose partial harness environments ([`d614031`](https://github.com/zerotomvp/parley-cli/commit/d6140316cc9460904e901f870a02f3c0bbe4fad6))
+
 ## [1.3.1] - 2026-08-07
 
 ### Bug fixes
@@ -145,3 +151,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.2.1]: https://github.com/zerotomvp/parley-cli/compare/v1.2.0...v1.2.1
 [1.3.0]: https://github.com/zerotomvp/parley-cli/compare/v1.2.1...v1.3.0
 [1.3.1]: https://github.com/zerotomvp/parley-cli/compare/v1.3.0...v1.3.1
+[1.3.2]: https://github.com/zerotomvp/parley-cli/compare/v1.3.1...v1.3.2
