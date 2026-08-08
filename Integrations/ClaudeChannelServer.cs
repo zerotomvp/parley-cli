@@ -199,5 +199,5 @@ public sealed class ClaudeChannelServer(ClaudeEndpointRegistry endpointRegistry)
     }
 
     private static string ServerVersion() =>
-        typeof(ClaudeChannelServer).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+        ParleyVersion.Display;
 }

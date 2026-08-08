@@ -22,8 +22,73 @@ public sealed class BehaviorTests
             "join", "trace-on", "--as", "recipient", "--sid", "traced-sid", "--wake", "claude");
         traced.ShouldSucceed();
         Assert.Contains("[trace] diagnostics enabled by PARLEY_TRACE", traced.Stderr);
+        Assert.DoesNotContain("version=1.0.0", traced.Stderr);
         Assert.Contains("kind=probe", traced.Stderr);
         Assert.Contains("classification=unavailable", traced.Stderr);
+    }
+
+    [Fact]
+    public async Task Harness_detection_trace_lists_catalog_environment_and_redacts_session_ids()
+    {
+        using var cli = new CliSandbox();
+
+        var undetected = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string> { ["PARLEY_TRACE"] = "1" },
+            "join", "trace-no-harness", "--as", "recipient");
+        Assert.Equal(1, undetected.ExitCode);
+        Assert.Contains("CODEX_THREAD_ID=<unset>", undetected.Stderr);
+        Assert.Contains("CLAUDE_CODE_SESSION_ID=<unset>", undetected.Stderr);
+        Assert.Contains("PI_SESSION_ID=<unset>", undetected.Stderr);
+        Assert.Contains("PI_CODING_AGENT=<unset>", undetected.Stderr);
+        Assert.Contains("detected=none", undetected.Stderr);
+
+        const string piSessionId = "private-pi-session-id";
+        var detected = await cli.RunWithEnvironmentAsync(
+            new Dictionary<string, string>
+            {
+                ["PARLEY_TRACE"] = "1",
+                ["PI_CODING_AGENT"] = "true",
+                ["PI_SESSION_ID"] = piSessionId
+            },
+            "join", "trace-pi-harness", "--as", "recipient");
+        detected.ShouldSucceed();
+        var detectionTrace = detected.Stderr.Split('\n')
+            .Single(line => line.Contains("[trace] harness detection"));
+        Assert.Contains("PI_SESSION_ID=<set>", detectionTrace);
+        Assert.Contains("PI_CODING_AGENT=true", detectionTrace);
+        Assert.Contains("detected=pi", detectionTrace);
+        Assert.DoesNotContain(piSessionId, detectionTrace);
+    }
+
+    [Fact]
+    public async Task Partial_harness_detection_steers_direct_shell_users_to_the_model_tool()
+    {
+        using var cli = new CliSandbox();
+        var environment = new Dictionary<string, string>
+        {
+            ["PARLEY_TRACE"] = "1",
+            ["PI_CODING_AGENT"] = "true",
+            ["CODEX_THREAD_ID"] = "inherited-codex-thread"
+        };
+
+        var detected = await cli.RunWithEnvironmentAsync(environment,
+            "join", "partial-pi-detect", "--as", "reviewer");
+        Assert.Equal(1, detected.ExitCode);
+        var normalized = Regex.Replace(detected.Stderr, @"\s+", " ");
+        Assert.Contains("detected=partial:pi", detected.Stderr);
+        Assert.Contains("Pi appears active", normalized);
+        Assert.Contains("PI_SESSION_ID is unavailable", normalized);
+        Assert.Contains("Ask the model to rerun this join through its shell tool", normalized);
+        Assert.DoesNotContain("Pass --wake never", normalized);
+
+        var explicitWake = await cli.RunWithEnvironmentAsync(environment,
+            "join", "partial-pi-explicit", "--as", "reviewer", "--wake", "pi");
+        Assert.Equal(1, explicitWake.ExitCode);
+        Assert.Contains("PI_SESSION_ID is unavailable", explicitWake.Stderr);
+
+        var manual = await cli.RunWithEnvironmentAsync(environment,
+            "join", "partial-pi-manual", "--as", "reviewer", "--wake", "never");
+        manual.ShouldSucceed();
     }
 
     [Fact]

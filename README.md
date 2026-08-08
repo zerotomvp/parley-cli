@@ -125,16 +125,21 @@ Parley's durable filesystem protocol works with any agent that can invoke a CLI 
 share `PARLEY_HOME`. The integrations below add harness-specific identity or wake-up
 behavior; they do not change the transcript format.
 
-| Coding agent | Support | Wake value | Session identity | Wake integration |
-|---|---|---|---|---|
-| [OpenAI Codex CLI](https://github.com/openai/codex) | First-class | `codex` | `CODEX_THREAD_ID` | A persistent app-server starts or steers the exact loaded thread. |
-| [Anthropic Claude Code](https://code.claude.com/docs/en/overview) | First-class | `claude` | `CLAUDE_CODE_SESSION_ID` | A native channel injects the notice into the exact running session. |
-| [Pi](https://pi.dev) | First-class | `pi` | `PI_CODING_AGENT=true` + `PI_SESSION_ID` | The Parley extension starts or steers the exact running session. |
-| All other coding agents | Protocol-compatible | `never` | `--sid`, `PARLEY_ID`, or role fallback | Use a foreground `recv --last-seen <seq> --wait`. |
+| Coding agent | Tested version | Support | Wake value | Session identity | Identity in direct shell | Wake integration |
+|---|---:|---|---|---|---|---|
+| [OpenAI Codex CLI](https://github.com/openai/codex) | 0.147.0 | First-class | `codex` | `CODEX_THREAD_ID` | Yes, including `!` commands | A persistent app-server starts or steers the exact loaded thread. |
+| [Anthropic Claude Code](https://code.claude.com/docs/en/overview) | 2.1.226 | First-class | `claude` | `CLAUDE_CODE_SESSION_ID` | Yes, including `!` commands | A native channel injects the notice into the exact running session. |
+| [Pi](https://pi.dev) | 0.84.1 | First-class | `pi` | `PI_CODING_AGENT=true` + `PI_SESSION_ID` | No: `!`/`!!` omit `PI_SESSION_ID`; use the model's Bash tool | The Parley extension starts or steers the exact running session. |
+| All other coding agents | — | Protocol-compatible | `never` | `--sid`, `PARLEY_ID`, or role fallback | Harness-dependent | Use a foreground `recv --last-seen <seq> --wait`. |
+
+The tested versions bound the observed environment behavior; later harness releases
+may change which variables they expose to model-run and directly invoked commands.
 
 `join` defaults to `--wake detect`, resolving the active Codex, Claude, or Pi environment
 once and recording that concrete wake type with the role. Detection errors outside
 those harnesses; manual and other-agent sessions must explicitly use `--wake never`.
+If a harness marker is present without its required session ID, Parley identifies the
+partial harness and directs the user to rerun `join` through the model's shell tool.
 
 ## Roles and session identity
 
@@ -266,11 +271,15 @@ only after Pi synchronously accepts the submission. The notice itself does not
 advance a Parley cursor: the model must still run the displayed nonblocking
 `recv --last-seen` command to consume durable delivery.
 
-Pi supplies `PI_SESSION_ID` to shell commands, so the ordinary command is enough:
+Pi supplies `PI_SESSION_ID` to commands executed by the model's Bash tool, so the
+ordinary command is enough when the model runs it:
 
 ```bash
 parley join review-xyzab --as reviewer
 ```
+
+Pi's user-invoked `!` and `!!` shell commands do not receive `PI_SESSION_ID` in the
+tested version. Ask the model to execute `parley join` through its Bash tool instead.
 
 Session replacement (`/new`, resume, or fork) shuts down the old helper and starts
 one keyed to the new session. Compaction retains the same session and endpoint.

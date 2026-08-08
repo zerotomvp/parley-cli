@@ -38,6 +38,7 @@ public static class JoinCommand
         command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);
+            HarnessCatalog.TraceDetection();
             var store = Cli.Services.GetRequiredService<ChannelStore>();
             var wakeClients = Cli.Services.GetRequiredService<WakeClientFactory>();
             var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
@@ -112,15 +113,20 @@ public static class JoinCommand
         if (requested == "never" || HarnessCatalog.Find(requested) is not null) return requested;
         if (requested != "detect")
             throw new ArgumentException($"--wake must be detect or one of: {HarnessCatalog.SupportedWakeValues}.");
-        if (HarnessCatalog.Detect() is { } harness) return harness.Wake;
+        var detection = HarnessCatalog.InspectEnvironment();
+        if (detection.IsPartial) throw PartialHarnessError(detection.Harness!);
+        if (detection.Harness is { } harness) return harness.Wake;
         throw new ArgumentException(
             "No supported harness detected. Pass --wake never for a manual session.");
     }
 
     private static void EnsureWakeMatchesActiveHarness(string wake)
     {
-        if (wake == "never" || HarnessCatalog.Detect() is not { } activeHarness
-            || activeHarness.Wake == wake)
+        if (wake == "never") return;
+
+        var detection = HarnessCatalog.InspectEnvironment();
+        if (detection.IsPartial) throw PartialHarnessError(detection.Harness!);
+        if (detection.Harness is not { } activeHarness || activeHarness.Wake == wake)
             return;
 
         throw new ArgumentException(
@@ -129,4 +135,8 @@ public static class JoinCommand
             "does not make a cross-harness takeover valid. Join as another role or use a new channel, " +
             "and inform the other participants of the change.");
     }
+
+    private static ArgumentException PartialHarnessError(HarnessDefinition harness) => new(
+        $"{harness.DisplayName} appears active, but {harness.SessionIdEnvironmentVariable} is unavailable. " +
+        "Ask the model to rerun this join through its shell tool instead of using a direct shell command.");
 }

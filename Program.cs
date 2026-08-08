@@ -17,7 +17,7 @@ if (LoggingConfiguration.ConfigurationWarning is { } configurationWarning)
 if (LoggingConfiguration.TraceEnabled)
     Log.Verbose("[trace] diagnostics enabled by {Source}; version={Version}",
         LoggingConfiguration.TraceSource,
-        typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown");
+        ParleyVersion.Display);
 
 Cli.ConfigureServices(s => s.AddParleyServices(levelSwitch));
 

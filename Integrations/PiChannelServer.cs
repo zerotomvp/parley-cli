@@ -141,5 +141,5 @@ public sealed class PiChannelServer
     }
 
     private static string ServerVersion() =>
-        typeof(PiChannelServer).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+        ParleyVersion.Display;
 }

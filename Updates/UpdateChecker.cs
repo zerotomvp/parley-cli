@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ParleyCli.Logging;
@@ -39,7 +38,7 @@ internal sealed class UpdateChecker
         if (command is not ("join" or "claude-channel" or "pi-channel") || !LoggingConfiguration.UpdateChecksEnabled)
             return;
 
-        var assemblyVersion = Assembly.GetEntryAssembly()?.GetName().Version;
+        var assemblyVersion = ParleyVersion.Numeric;
         if (assemblyVersion is null)
             return;
 

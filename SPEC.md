@@ -53,8 +53,12 @@ own its claimed role.
 
 `join --wake detect` (the default) selects the first catalog row whose environment
 variable is non-empty; a dedicated process marker takes precedence over session IDs
-inherited from a parent harness. Detection errors if no row matches. An explicit wake
-accepts a catalog value or `never`. Only the resolved concrete value is persisted.
+inherited from a parent harness. A marker without its row's required session ID is a
+partial detection: it still takes precedence over inherited harness IDs, but `join`
+errors with guidance to rerun through the model's shell tool. The same check prevents
+an explicit harness wake from registering against a role-derived fallback SID.
+Detection errors if no row matches. An explicit wake accepts a catalog value or
+`never`. Only the resolved concrete value is persisted.
 It is immutable for a role: a forced reclaim may replace its SID only when the wake
 type matches. In addition, when the joining process clearly exposes a supported
 harness through the catalog environment, an explicit catalog wake must match that
