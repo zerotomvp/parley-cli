@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection;
 
 namespace ParleyCli;
@@ -9,14 +8,14 @@ internal static class ParleyVersion
 
     public static string Display =>
         Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-        ?? FileVersionInfo.GetVersionInfo(Assembly.Location).FileVersion
+        ?? Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version
         ?? "unknown";
 
     public static Version? Numeric
     {
         get
         {
-            var value = FileVersionInfo.GetVersionInfo(Assembly.Location).FileVersion;
+            var value = Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
             return Version.TryParse(value, out var version) ? version : null;
         }
     }
