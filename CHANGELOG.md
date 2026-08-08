@@ -8,6 +8,7 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 ### Bug fixes
 
 - diagnose partial harness environments ([`d614031`](https://github.com/zerotomvp/parley-cli/commit/d6140316cc9460904e901f870a02f3c0bbe4fad6))
+- support single-file release builds ([`5225972`](https://github.com/zerotomvp/parley-cli/commit/5225972008c2a03a68fc12b630ce7d3c2ea95fcb))
 
 ## [1.3.1] - 2026-08-07
 
