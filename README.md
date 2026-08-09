@@ -156,7 +156,18 @@ another session is rejected. After a same-harness runtime restart, reclaim the r
 session's receive position starts at the current end of the transcript so it resumes
 forward rather than draining the historical backlog.
 
-Use `parley members list <channel>` to inspect current role ownership.
+Use `parley members list <channel>` to inspect one channel's current ownership. To
+discover every active channel and role held by the current session, run:
+
+```bash
+parley whoami
+```
+
+`whoami` uses the harness session ID, `PARLEY_ID`, or an explicit `--sid`. It does
+not accept `--as`, because discovering the roles is the purpose of the command. A
+manual session without an injected identity must pass `--sid <id>`. Departed,
+removed, and superseded claims are omitted; `--json` emits one JSON object per
+active membership.
 
 ## Managing members
 
@@ -433,6 +444,7 @@ using the wake or listener mode reported by `join` if more work may arrive.
 | Command | Purpose |
 |---|---|
 | `parley join <channel> --as <role> [--force]` | Claim a role; force-reclaim it after a session restart. |
+| `parley whoami [--sid <id>] [--json]` | List every active channel and role held by this session. |
 | `parley leave <channel> --as <role>` | Vacate the current session's role. |
 | `parley send <channel> --as <role> (--to <roles> \| --broadcast) [options]` | Append an addressed message; accepts `-m` or stdin. |
 | `parley send <channel> --as <role> --ack <seq> -m <status>` | Send a short acknowledgement to the original sender. |

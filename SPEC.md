@@ -38,7 +38,14 @@ Each participant has two identifiers:
 - `role` is the explicit, addressable name supplied with `--as`.
 - `sid` is the session ownership token and cursor key. Explicit `--sid` and
   `PARLEY_ID` take precedence, followed by the first matching catalog row and then
-  the role fallback.
+the role fallback.
+
+`whoami` is the exception to role fallback because the role is its output rather
+than an input. It requires an explicit/session-environment SID, scans roster files
+directly so channels with no transcript are included, and reports every current
+claim whose SID matches exactly. Results are ordered by channel and role. Removed,
+superseded, and historical equivalent SIDs are excluded. An empty result is
+successful; a manual invocation with no resolvable SID is an error.
 
 Harness-specific metadata is centralized in one ordered catalog:
 
@@ -233,6 +240,13 @@ claims for every current Claude membership owned by the old SID and copies curso
 forward. Historical message SIDs are treated as equivalent through the recorded
 rotation chain. If discovery, correlation, or endpoint rebind fails, roster state is
 unchanged and the ordinary ownership error is returned.
+
+A `whoami` invocation has no channel/role anchor for the ordinary repair path. When
+the active harness is Claude, it performs one agent-discovery query, finds active
+Claude claims carrying the exact current process correlation, requires a successful
+endpoint rebind, and then rotates every membership from each proven old UUID before
+listing. It does not scan processes for other harnesses or accept correlation as a
+replacement for endpoint acknowledgement.
 
 If `/clear` precedes the first join on a new channel, there is no old membership from
 which to recover the endpoint SID. Claude join first probes the current SID, then—only
