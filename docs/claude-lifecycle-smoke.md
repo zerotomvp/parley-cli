@@ -22,7 +22,7 @@ an interactive Claude session.
    wake, runs the exact nonblocking `recv` command, and sees the message.
 4. Run `/clear` in Claude. Send another addressed message from the sender. In the
    cleared context, run the exact `recv` command from the wake notice. It must succeed
-   without `join --force`; `parley who <channel>` must show the new Claude UUID as the
+   without `join --force`; `parley members list <channel>` must show the new Claude UUID as the
    recipient owner.
 5. Confirm the trace contains a successful endpoint rebind and membership rotation,
    then send once more to verify the new endpoint. Repeat around `/compact` and a

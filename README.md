@@ -7,7 +7,7 @@ through a person.
 
 Parley has no daemon of its own. Each command invocation is short-lived and the
 shared conversation is persisted under `~/.parley/channels/` (or `PARLEY_HOME`). An
-optional harness integrations for Claude Code, Pi, and Codex can wake the exact
+optional harness integration for Claude Code, Pi, and Codex can wake the exact
 session that currently owns a recipient role.
 
 ## Contents
@@ -17,6 +17,7 @@ session that currently owns a recipient role.
 - [Quick start](#quick-start)
 - [Supported coding agents](#supported-coding-agents)
 - [Roles and session identity](#roles-and-session-identity)
+- [Managing members](#managing-members)
 - [Scope and limitations](#scope-and-limitations)
 - [Acknowledging longer work](#acknowledging-longer-work)
 - [Claude Code: native channel wake-up](#claude-code-native-channel-wake-up)
@@ -82,7 +83,7 @@ When the opener must not be sent until its recipient is actually present, wait o
 roster state instead of inferring a join from transcript silence:
 
 ```bash
-parley wait-for-join review-xyzab reviewer
+parley members wait review-xyzab reviewer
 ```
 
 Pass several roles as additional arguments, and optionally bound the wait with
@@ -155,7 +156,35 @@ another session is rejected. After a same-harness runtime restart, reclaim the r
 session's receive position starts at the current end of the transcript so it resumes
 forward rather than draining the historical backlog.
 
-Use `parley who <channel>` to inspect current role ownership.
+Use `parley members list <channel>` to inspect current role ownership.
+
+## Managing members
+
+The first role to join a channel is its owner and is marked as such by `members
+list`. The owner role remains fixed for the lifetime of the channel, including if
+its session leaves and later rejoins after a restart.
+
+A participant can vacate its own role when its work is finished:
+
+```bash
+parley leave review-xyzab --as reviewer
+```
+
+The channel owner can remove another active role:
+
+```bash
+parley members remove review-xyzab researcher --as author
+```
+
+Both operations append an audited roster event. They do not rewrite the transcript
+or delete cursor files. The departed SID immediately loses permission to send or
+receive under that role, and broadcasts stop waking it. The role may be joined
+again later, but its original wake type remains immutable. Send a final `--close`
+message before removal when the departing session should be notified.
+
+Membership is a cooperative protocol guard, not an access-control boundary. Every
+process with filesystem access to `PARLEY_HOME` can read its plaintext files, and
+transcript inspection commands intentionally do not require active membership.
 
 ## Scope and limitations
 
@@ -200,7 +229,7 @@ Claude Code can load Parley as a one-way MCP channel. Add the server to a projec
 ```json
 {
   "mcpServers": {
-    "parley": { "command": "parley", "args": ["claude-channel"] }
+    "parley": { "command": "parley", "args": ["integrations", "claude"] }
   }
 }
 ```
@@ -219,7 +248,7 @@ allowlist. Several channels can coexist; pass their server names space-separated
 claude --dangerously-load-development-channels server:another-channel server:parley
 ```
 
-Claude Code starts `parley claude-channel` as a stdio subprocess. It registers a
+Claude Code starts `parley integrations claude` as a stdio subprocess. It registers a
 same-user named pipe keyed by `CLAUDE_CODE_SESSION_ID` and announces that endpoint
 under a private, process-correlated runtime registration. `join --wake detect` records
 `claude` for the role; each send to that role connects directly to this endpoint
@@ -254,12 +283,12 @@ Install Parley's Pi package from the same release as the CLI, then restart Pi (o
 run `/reload` in an existing session):
 
 ```bash
-pi install git:github.com/zerotomvp/parley-cli@v1.3.1
+pi install git:github.com/zerotomvp/parley-cli@v2.0.0
 ```
 
 The package contributes `extensions/parley.ts`. On every Pi session start, the
 extension reads Pi's session ID directly from the session manager and starts
-`parley pi-channel` as its private stdio helper. The helper exposes a same-user
+`parley integrations pi` as its private stdio helper. The helper exposes a same-user
 named pipe derived from `PARLEY_HOME` and that exact session ID. A send to a role
 registered with `wake: pi` connects directly to that pipe; no process scanning,
 endpoint registry, or remote service is involved.
@@ -404,16 +433,18 @@ using the wake or listener mode reported by `join` if more work may arrive.
 | Command | Purpose |
 |---|---|
 | `parley join <channel> --as <role> [--force]` | Claim a role; force-reclaim it after a session restart. |
+| `parley leave <channel> --as <role>` | Vacate the current session's role. |
 | `parley send <channel> --as <role> (--to <roles> \| --broadcast) [options]` | Append an addressed message; accepts `-m` or stdin. |
 | `parley send <channel> --as <role> --ack <seq> -m <status>` | Send a short acknowledgement to the original sender. |
 | `parley recv <channel> --as <role> --last-seen <seq> [--wait]` | Read addressed peer messages after an explicit checkpoint. |
-| `parley wait-for-join <channel> <roles...> [--timeout N]` | Wait for current role owners without reading messages or advancing cursors. |
-| `parley who <channel>` | List claimed roles and recent activity. |
-| `parley log <channel> [--limit N]` | Preview recent transcript messages; `--limit 0` shows all. |
-| `parley show <channel> <seq>` | Print one message in full. |
 | `parley drop <channel> --as <role> [--yes]` | Retract your last message and roll back affected cursors. |
-| `parley claude-channel` | Run the one-way Claude Code MCP wake channel over stdio. |
-| `parley pi-channel` | Run the Pi extension wake bridge over JSONL stdio. |
+| `parley members list <channel>` | List active roles, ownership, and recent activity. |
+| `parley members wait <channel> <roles...> [--timeout N]` | Wait for current role owners without reading messages or advancing cursors. |
+| `parley members remove <channel> <role> --as <owner-role>` | Remove an active member as the channel owner. |
+| `parley messages log <channel> [--limit N]` | Preview recent transcript messages; `--limit 0` shows all. |
+| `parley messages show <channel> <seq>` | Print one message in full. |
+| `parley integrations claude` | Run the one-way Claude Code MCP wake channel over stdio. |
+| `parley integrations pi` | Run the Pi extension wake bridge over JSONL stdio. |
 | `parley admin prune [--days N] [--dry-run]` | Remove channels idle longer than the retention threshold. |
 
 The message body comes from `-m <text>` or stdin, which is preferable for complete
@@ -477,7 +508,8 @@ these integrations.
 
 ## Update notices
 
-Update checks are enabled by default. On `join`, `claude-channel`, and `pi-channel`
+Update checks are enabled by default. On `join`, `integrations claude`, and
+`integrations pi`
 startup, Parley checks GitHub's public latest-release endpoint at most once every 24
 hours. The check
 is failure-silent, has a two-second timeout, never runs on the latency-sensitive
@@ -533,7 +565,7 @@ recovery path when an agent harness backgrounds a blocking command.
 
 ### A role is already held
 
-Confirm the participants with `parley who <channel>`. If the prior session genuinely
+Confirm the participants with `parley members list <channel>`. If the prior session genuinely
 restarted and the old SID is gone, reclaim the role with:
 
 ```bash
@@ -551,7 +583,7 @@ or use a new channel, then inform the other participants of the change.
 
 The transcript message is still delivered. Receive it normally. Consult the
 supported-agent table and check that the listed wake integration is running. Confirm
-the roster SID shown by `parley who` matches the session. `join` prints the currently
+the roster SID shown by `parley members list` matches the session. `join` prints the currently
 detected wake mode; otherwise use `recv ... --last-seen <seq> --wait` as fallback.
 
 To capture transport diagnostics without changing wake behavior, start the affected

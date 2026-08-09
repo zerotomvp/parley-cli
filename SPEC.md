@@ -16,10 +16,13 @@ For a channel `<channel>`:
   optional `closed` flag. A message's one-based line position is its `seq`; sequence
   is derived on read rather than stored. Embedded newlines in `text` are JSON-escaped,
   so one physical line remains one record.
-- `<channel>.roster.jsonl` is the append-only role-claim log. Entries contain `ts`,
-  `role`, `sid`, concrete `wake`, and optional `forced`. Claude entries may also carry
+- `<channel>.roster.jsonl` is the append-only membership log. Claim entries contain `ts`,
+  `role`, `sid`, concrete `wake`, and optional `forced`. Removal entries contain
+  `kind: "remove"`, the exact target `role` and `sid`, plus `byRole` and `bySid`.
+  Claude claim entries may also carry
   internal `claudePid`, `claudeStartedAt`, and `previousSid` correlation. Replaying
-  the log makes the latest claim for each role authoritative.
+  the log makes claims authoritative and applies a removal only while its target SID
+  still owns the role.
 - `<channel>.<sid>.cursor` records the highest transcript position emitted by the
   CLI to that session. It is diagnostic delivery state, not proof that an agent
   harness placed the output into model context.
@@ -50,6 +53,22 @@ before sending or receiving. A free role may be claimed, and joining an already-
 role from the same SID is idempotent. A different SID is rejected unless `--force`
 is present. Send and receive re-resolve the roster and require the caller's SID to
 own its claimed role.
+
+The role in the first historical claim is the channel owner. This is deterministic
+under concurrent creation because roster lines are atomically appended; existing
+channels require no metadata migration. The owner role is immutable, although its
+current SID may leave, rejoin, rotate, or be force-reclaimed under the ordinary
+ownership rules.
+
+`leave` appends a targeted removal for the caller's active role. `members remove`
+requires the caller to own the channel-owner role and cannot target that owner role;
+the owner session may use `leave` itself. A removal stores the target's current SID,
+and replay ignores it if a concurrent claim has already installed another SID. Both
+commands replay after append and report a concurrent replacement instead of claiming
+to have removed it. Removal immediately causes membership checks to fail and excludes
+the role from roster waits and broadcast wake resolution. It does not delete the
+transcript or cursor. A vacant role may be joined again, but its last claim preserves
+the role's immutable wake type.
 
 `join --wake detect` (the default) selects the first catalog row whose environment
 variable is non-empty; a dedicated process marker takes precedence over session IDs
@@ -104,7 +123,8 @@ exceptions, but never transcript message bodies or raw MCP frames. Enabling trac
 does not alter wake timeouts, acknowledgement rules, retries, or fallback behavior.
 
 Release discovery is enabled by default and is Parley's only direct internet
-behavior. Eligible lifecycle invocations (`join`, `claude-channel`, and `pi-channel`) query GitHub's
+behavior. Eligible lifecycle invocations (`join`, `integrations claude`, and
+`integrations pi`) query GitHub's
 public latest-release endpoint no more than once per 24 hours with a bounded timeout.
 The request contains no channel, transcript, role, SID, message, or diagnostics data.
 Its only Parley-specific request metadata is the public current version in the
@@ -128,7 +148,7 @@ warning.
 performed by `drop` are best-effort checks; a small check-to-write race is accepted.
 Random five-letter channel suffixes provide the primary namespace separation.
 
-`wait-for-join` polls the current roster until every requested role is owned. It
+`members wait` polls the current roster until every requested role is owned. It
 returns immediately for an already-satisfied roster, reflects the latest claim when
 a role is reclaimed during the wait, and returns exit code 2 after a bounded timeout.
 It does not inspect the transcript and cannot create or advance a message cursor.
@@ -178,7 +198,7 @@ an operator supplies `--force`.
 Automatic wake is a best-effort notification layered on durable transcript delivery.
 For a recipient registered with `wake: claude`:
 
-1. `parley claude-channel`, launched by Claude Code as a one-way MCP stdio server,
+1. `parley integrations claude`, launched by Claude Code as a one-way MCP stdio server,
    binds a same-user named pipe derived from `PARLEY_HOME` and the live
    `CLAUDE_CODE_SESSION_ID`;
 2. `join` probes only that the named-pipe endpoint is accepting connections; this
@@ -222,7 +242,7 @@ and the new-channel membership is written under the current Claude UUID.
 
 For a recipient registered with `wake: pi`:
 
-1. the repository's Pi extension starts `parley pi-channel --sid <session-id>` on
+1. the repository's Pi extension starts `parley integrations pi --sid <session-id>` on
    `session_start`, using `ctx.sessionManager.getSessionId()` rather than relying on
    a retained shell environment;
 2. the helper binds a current-user-only named pipe derived deterministically from
@@ -282,7 +302,7 @@ redundant message-count success line.
 
 ## Administrative behavior
 
-`log` and `show` inspect transcript data without touching cursors. `log` defaults to
+`messages log` and `messages show` inspect transcript data without touching cursors. `log` defaults to
 ten messages, uses a first-line preview capped at 200 characters, and marks
 truncation; a zero limit means all messages. `show` returns a complete record.
 
