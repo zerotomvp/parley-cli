@@ -70,10 +70,15 @@ public sealed class WaitForJoinTests
 
         var result = await waiting.Completion;
         result.ShouldSucceed();
+        Assert.Matches(@"reviewer\tsid=sid-[ab]\twake=never", result.Stdout);
+
+        // The waiter returns as soon as either atomic claim is visible. A second concurrent claim
+        // may become authoritative immediately afterward, so its snapshot need not equal a later
+        // `members list`; both must still resolve exactly one valid owner.
         var who = await cli.RunAsync("members", "list", "claim-race", "--json");
         who.ShouldSucceed();
         var currentSid = JsonDocument.Parse(who.Stdout).RootElement.GetProperty("sid").GetString();
-        Assert.Contains($"sid={currentSid}", result.Stdout);
+        Assert.Contains(currentSid, new[] { "sid-a", "sid-b" });
     }
 
     private static Task<CliResult> Join(CliSandbox cli, string channel, string role, string sid) =>
