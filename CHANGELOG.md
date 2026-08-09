@@ -3,6 +3,16 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [2.0.0] - 2026-08-09
+
+### Features
+
+- add managed membership lifecycle ([`55457d2`](https://github.com/zerotomvp/parley-cli/commit/55457d25caa3b5879da90c8c2a451d5c8c3bc07a))
+
+### Documentation
+
+- document membership and command namespaces ([`33dca78`](https://github.com/zerotomvp/parley-cli/commit/33dca78f4f4815d3a312e43e5d6951fd1a549f36))
+
 ## [1.3.2] - 2026-08-08
 
 ### Bug fixes
@@ -153,3 +163,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.3.0]: https://github.com/zerotomvp/parley-cli/compare/v1.2.1...v1.3.0
 [1.3.1]: https://github.com/zerotomvp/parley-cli/compare/v1.3.0...v1.3.1
 [1.3.2]: https://github.com/zerotomvp/parley-cli/compare/v1.3.1...v1.3.2
+[2.0.0]: https://github.com/zerotomvp/parley-cli/compare/v1.3.2...v2.0.0
