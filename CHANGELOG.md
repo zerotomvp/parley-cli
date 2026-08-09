@@ -3,6 +3,16 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [2.1.0] - 2026-08-09
+
+### Features
+
+- list active session memberships ([`d6f23b8`](https://github.com/zerotomvp/parley-cli/commit/d6f23b884e152d77e938b8992c367a1c498a3dac))
+
+### Documentation
+
+- document session membership discovery ([`4133195`](https://github.com/zerotomvp/parley-cli/commit/413319570e9492bd0f1941315e4c2f01e4eab753))
+
 ## [2.0.0] - 2026-08-09
 
 ### Features
@@ -164,3 +174,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.3.1]: https://github.com/zerotomvp/parley-cli/compare/v1.3.0...v1.3.1
 [1.3.2]: https://github.com/zerotomvp/parley-cli/compare/v1.3.1...v1.3.2
 [2.0.0]: https://github.com/zerotomvp/parley-cli/compare/v1.3.2...v2.0.0
+[2.1.0]: https://github.com/zerotomvp/parley-cli/compare/v2.0.0...v2.1.0
