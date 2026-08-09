@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace ParleyCli.IntegrationTests;
 
@@ -51,7 +52,8 @@ public sealed class MembershipLifecycleTests
             "join", "leave-flow", "--as", "worker", "--sid", "other-worker-sid",
             "--wake", "codex");
         Assert.Equal(1, wrongWake.ExitCode);
-        Assert.Contains("permanently registered with --wake never", wrongWake.Stderr);
+        Assert.Contains("permanently registered with --wake never",
+            Regex.Replace(wrongWake.Stderr, @"\s+", " "));
 
         var rejoined = await Join(cli, "leave-flow", "worker", "new-worker-sid");
         rejoined.ShouldSucceed();
