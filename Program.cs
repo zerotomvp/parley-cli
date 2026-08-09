@@ -35,6 +35,7 @@ var rootCommand = new RootCommand(
 rootCommand.Directives.Add(new SuggestDirective());
 
 rootCommand.Subcommands.Add(JoinCommand.Create());
+rootCommand.Subcommands.Add(WhoamiCommand.Create());
 rootCommand.Subcommands.Add(LeaveCommand.Create());
 rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());

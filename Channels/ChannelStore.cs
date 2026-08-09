@@ -55,6 +55,18 @@ public class ChannelStore
     // can share a channel and each track its own read position independently.
     private string CursorPath(string channel, string sid) => Path.Combine(ChannelsDir, $"{channel}.{sid}.cursor");
 
+    private IEnumerable<string> RosterChannels()
+    {
+        if (!Directory.Exists(ChannelsDir)) return [];
+        const string suffix = ".roster.jsonl";
+        return Directory.EnumerateFiles(ChannelsDir, $"*{suffix}")
+            .Select(Path.GetFileName)
+            .Where(file => file is not null && file.EndsWith(suffix, StringComparison.Ordinal))
+            .Select(file => file![..^suffix.Length])
+            .Where(channel => NameRe.IsMatch(channel))
+            .Order(StringComparer.Ordinal);
+    }
+
     /// <summary>Validates a channel name, role, or session id used verbatim in a filename or address.</summary>
     public static string Validate(string kind, string value)
     {
@@ -92,9 +104,13 @@ public class ChannelStore
     /// concurrent reclaim.
     /// </summary>
     private Dictionary<string, RosterEntryWire> Owners(string channel)
+        => ResolveOwners(ReadRoster(channel));
+
+    private static Dictionary<string, RosterEntryWire> ResolveOwners(
+        IEnumerable<RosterEntryWire> roster)
     {
         var owners = new Dictionary<string, RosterEntryWire>();
-        foreach (var entry in ReadRoster(channel))
+        foreach (var entry in roster)
         {
             if (IsRemoval(entry))
             {
@@ -120,6 +136,43 @@ public class ChannelStore
 
     public RosterEntryWire? MembershipOf(string channel, string role) =>
         Owners(channel).GetValueOrDefault(role);
+
+    /// <summary>
+    /// Every active role held by an exact SID, including channels that have roster state but no
+    /// transcript. Removal tombstones and superseded claims are excluded by ordinary roster replay.
+    /// </summary>
+    public List<SessionMembership> ActiveMembershipsOf(string sid)
+    {
+        Validate("session id", sid);
+        var result = new List<SessionMembership>();
+        foreach (var channel in RosterChannels())
+        {
+            var roster = ReadRoster(channel);
+            var ownerRole = roster.FirstOrDefault(entry => !IsRemoval(entry))?.Role;
+            result.AddRange(ResolveOwners(roster).Values
+                .Where(entry => entry.Sid == sid)
+                .Select(entry => new SessionMembership(
+                    channel, entry.Role, entry.Wake ?? "never", entry.Role == ownerRole)));
+        }
+        return result
+            .OrderBy(membership => membership.Channel, StringComparer.Ordinal)
+            .ThenBy(membership => membership.Role, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Active Claude SIDs proven to belong to one live process correlation. Used only for bounded
+    /// lifecycle repair when a global membership query has no channel/role anchor.
+    /// </summary>
+    public List<string> ClaudeSessionIdsForProcess(ClaudeProcessCorrelation process) =>
+        RosterChannels()
+            .SelectMany(channel => ResolveOwners(ReadRoster(channel)).Values)
+            .Where(entry => entry.Wake == "claude"
+                            && entry.ClaudePid == process.Pid
+                            && entry.ClaudeStartedAt == process.StartedAt)
+            .Select(entry => entry.Sid)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
     /// <summary>True when two SIDs are the same current session across Claude SID rotations.</summary>
     public bool IsSameSession(string channel, string firstSid, string secondSid)
@@ -270,10 +323,8 @@ public class ChannelStore
         if (!Directory.Exists(ChannelsDir)) return 0;
 
         var rotated = 0;
-        foreach (var path in Directory.GetFiles(ChannelsDir, "*.roster.jsonl"))
+        foreach (var channel in RosterChannels())
         {
-            var file = Path.GetFileName(path);
-            var channel = file[..^".roster.jsonl".Length];
             foreach (var membership in Owners(channel).Values
                          .Where(e => e.Sid == oldSid && e.Wake == "claude"))
             {

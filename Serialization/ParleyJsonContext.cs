@@ -12,6 +12,7 @@ namespace ParleyCli.Serialization;
 [JsonSerializable(typeof(MessageWire))]
 [JsonSerializable(typeof(RosterEntryWire))]
 [JsonSerializable(typeof(Participant))]
+[JsonSerializable(typeof(SessionMembership))]
 [JsonSerializable(typeof(SequenceOutput))]
 [JsonSerializable(typeof(DaemonVersionStatus))]
 [JsonSerializable(typeof(RpcResponse))]

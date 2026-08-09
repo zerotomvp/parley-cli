@@ -39,20 +39,45 @@ public sealed class ClaudeSessionResolver(
             return false;
         }
 
-        var rebound = await wakeClient.RebindAsync(membership.Sid, currentSid, ct);
+        var process = new ClaudeProcessCorrelation(sameProcess.Pid, sameProcess.StartedAt);
+        return await RebindAndRotateAsync(membership.Sid, currentSid, process, ct) > 0;
+    }
+
+    /// <summary>
+    /// Repairs every active membership proven to belong to the current Claude process. Unlike the
+    /// ordinary action path, a global identity query has no channel/role with which to locate the
+    /// previous UUID, so this bounded scan uses stored process correlation.
+    /// </summary>
+    public async Task<int> TryRepairAllMembershipsAsync(string currentSid, CancellationToken ct)
+    {
+        var process = await CaptureAsync(currentSid, ct);
+        if (process is null) return 0;
+
+        var rotated = 0;
+        foreach (var oldSid in store.ClaudeSessionIdsForProcess(process.Value)
+                     .Where(sid => sid != currentSid))
+            rotated += await RebindAndRotateAsync(oldSid, currentSid, process.Value, ct);
+        return rotated;
+    }
+
+    private async Task<int> RebindAndRotateAsync(
+        string oldSid, string currentSid, ClaudeProcessCorrelation process, CancellationToken ct)
+    {
+        var rebound = await wakeClient.RebindAsync(oldSid, currentSid, ct);
         if (rebound.Status != WakeStatus.Woken)
         {
             Log.Verbose("[trace] Claude SID repair endpoint rebind failed; oldSid={OldSid} currentSid={CurrentSid} status={Status}",
-                membership.Sid, currentSid, rebound.Status);
-            return false;
+                oldSid, currentSid, rebound.Status);
+            return 0;
         }
 
-        var rotated = store.RotateClaudeSession(
-            membership.Sid, currentSid,
-            new ClaudeProcessCorrelation(sameProcess.Pid, sameProcess.StartedAt));
+        var registration = endpointRegistry.Find(process);
+        if (registration?.EndpointSid == oldSid)
+            endpointRegistry.UpdateEndpoint(registration, currentSid);
+        var rotated = store.RotateClaudeSession(oldSid, currentSid, process);
         Log.Information("Rebound Claude session after lifecycle transition; oldSid={OldSid} newSid={NewSid} memberships={Memberships}",
-            membership.Sid, currentSid, rotated);
-        return rotated > 0;
+            oldSid, currentSid, rotated);
+        return rotated;
     }
 
     /// <summary>
