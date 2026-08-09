@@ -81,7 +81,8 @@ public static class CommandHelpers
     /// <summary>
     /// Writes messages to stdout — human-readable by default, one compact JSON object per line with
     /// --json. When <paramref name="previewChars"/> is set (log preview mode), each body is truncated
-    /// to a head with a clear cut-off marker pointing at <c>parley show &lt;channel&gt; &lt;seq&gt;</c>;
+    /// to a head with a clear cut-off marker pointing at
+    /// <c>parley messages show &lt;channel&gt; &lt;seq&gt;</c>;
     /// JSON output is never truncated (it carries the full body regardless).
     /// </summary>
     public static void PrintMessages(IReadOnlyList<Message> messages, bool json,
@@ -111,7 +112,7 @@ public static class CommandHelpers
                 var (head, truncated) = Preview(m.Text, max);
                 sb.AppendLine(head);
                 if (truncated)
-                    sb.AppendLine($"  … [truncated — full message: parley show {channel} {m.Seq}]");
+                    sb.AppendLine($"  … [truncated — full message: parley messages show {channel} {m.Seq}]");
             }
             else
             {

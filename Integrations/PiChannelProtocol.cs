@@ -1,6 +1,6 @@
 namespace ParleyCli.Integrations;
 
-/// <summary>JSONL event emitted by <c>parley pi-channel</c> to the Pi extension.</summary>
+/// <summary>JSONL event emitted by <c>parley integrations pi</c> to the Pi extension.</summary>
 public sealed record PiChannelEvent(
     string Type,
     string? Id = null,

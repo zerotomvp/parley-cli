@@ -35,7 +35,7 @@ internal sealed class UpdateChecker
 
     internal static async Task CheckAndNotifyAsync(string? command, TextWriter stderr)
     {
-        if (command is not ("join" or "claude-channel" or "pi-channel") || !LoggingConfiguration.UpdateChecksEnabled)
+        if (command is not ("join" or "claude" or "pi") || !LoggingConfiguration.UpdateChecksEnabled)
             return;
 
         var assemblyVersion = ParleyVersion.Numeric;

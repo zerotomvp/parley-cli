@@ -43,7 +43,7 @@ export default function parleyExtension(pi: ExtensionAPI): void {
 		await stop();
 		const currentGeneration = generation;
 		const sid = ctx.sessionManager.getSessionId();
-		const process = spawn("parley", ["pi-channel", "--sid", sid], {
+		const process = spawn("parley", ["integrations", "pi", "--sid", sid], {
 			stdio: ["pipe", "pipe", "pipe"],
 			env: processEnv(),
 		});

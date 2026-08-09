@@ -22,7 +22,7 @@ public static class WaitForJoinCommand
             DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("wait-for-join",
+        var command = new Command("wait",
             "Wait until named roles have current owners without reading channel messages.")
         {
             channelArg, rolesArg, timeoutOpt

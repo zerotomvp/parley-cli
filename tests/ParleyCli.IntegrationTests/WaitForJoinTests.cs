@@ -10,7 +10,7 @@ public sealed class WaitForJoinTests
         using var cli = new CliSandbox();
         (await Join(cli, "ready", "reviewer", "reviewer-sid")).ShouldSucceed();
 
-        var result = await cli.RunAsync("wait-for-join", "ready", "reviewer", "--timeout", "2");
+        var result = await cli.RunAsync("members", "wait", "ready", "reviewer", "--timeout", "2");
         result.ShouldSucceed();
         Assert.Contains("reviewer\tsid=reviewer-sid\twake=never", result.Stdout);
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(cli.Transcript("ready"))!, "*.cursor"));
@@ -20,7 +20,7 @@ public sealed class WaitForJoinTests
     public async Task Delayed_join_satisfies_wait_for_multiple_roles()
     {
         using var cli = new CliSandbox();
-        var waiting = cli.Start("wait-for-join", "delayed", "author", "reviewer", "--timeout", "5");
+        var waiting = cli.Start("members", "wait", "delayed", "author", "reviewer", "--timeout", "5");
         await Task.Delay(300);
         (await Join(cli, "delayed", "author", "author-sid")).ShouldSucceed();
         await Task.Delay(300);
@@ -36,7 +36,7 @@ public sealed class WaitForJoinTests
     public async Task Bounded_wait_returns_two_when_role_is_absent()
     {
         using var cli = new CliSandbox();
-        var result = await cli.RunAsync("wait-for-join", "missing", "reviewer", "--timeout", "1");
+        var result = await cli.RunAsync("members", "wait", "missing", "reviewer", "--timeout", "1");
         Assert.Equal(2, result.ExitCode);
         Assert.Contains("Roles not joined within 1s", result.Stderr);
     }
@@ -46,7 +46,7 @@ public sealed class WaitForJoinTests
     {
         using var cli = new CliSandbox();
         (await Join(cli, "reclaim-wait", "author", "old-sid")).ShouldSucceed();
-        var waiting = cli.Start("wait-for-join", "reclaim-wait", "author", "reviewer", "--timeout", "5");
+        var waiting = cli.Start("members", "wait", "reclaim-wait", "author", "reviewer", "--timeout", "5");
         await Task.Delay(300);
         (await cli.RunAsync("join", "reclaim-wait", "--as", "author", "--sid", "new-sid",
             "--wake", "never", "--force")).ShouldSucceed();
@@ -62,7 +62,7 @@ public sealed class WaitForJoinTests
     public async Task Concurrent_plain_claims_yield_one_owner_to_waiter()
     {
         using var cli = new CliSandbox();
-        var waiting = cli.Start("wait-for-join", "claim-race", "reviewer", "--timeout", "5");
+        var waiting = cli.Start("members", "wait", "claim-race", "reviewer", "--timeout", "5");
         var claims = await Task.WhenAll(
             Join(cli, "claim-race", "reviewer", "sid-a"),
             Join(cli, "claim-race", "reviewer", "sid-b"));
@@ -70,7 +70,7 @@ public sealed class WaitForJoinTests
 
         var result = await waiting.Completion;
         result.ShouldSucceed();
-        var who = await cli.RunAsync("who", "claim-race", "--json");
+        var who = await cli.RunAsync("members", "list", "claim-race", "--json");
         who.ShouldSucceed();
         var currentSid = JsonDocument.Parse(who.Stdout).RootElement.GetProperty("sid").GetString();
         Assert.Contains($"sid={currentSid}", result.Stdout);

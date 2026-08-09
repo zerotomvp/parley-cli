@@ -10,7 +10,7 @@ public static class PiChannelCommand
 {
     public static Command Create()
     {
-        var command = new Command("pi-channel", "Run the Pi extension wake bridge over JSONL stdio");
+        var command = new Command("pi", "Run the Pi extension wake bridge over JSONL stdio");
         command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);

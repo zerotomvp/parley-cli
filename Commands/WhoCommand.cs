@@ -16,7 +16,7 @@ public static class WhoCommand
         var channelArg = new Argument<string>("channel") { Description = "Channel name" };
         var jsonOpt = new Option<bool>("--json") { Description = "Emit participants as JSONL" };
 
-        var command = new Command("who", "List the roles that have joined a channel (participants).")
+        var command = new Command("list", "List the channel's active members.")
         {
             channelArg, jsonOpt
         };
@@ -29,12 +29,21 @@ public static class WhoCommand
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var json = pr.GetValue(jsonOpt);
             var participants = store.Participants(channel);
+            var ownerRole = store.OwnerRole(channel);
 
             if (participants.Count == 0)
             {
-                Stderr.MarkupLine($"[grey]No one has joined '{Markup.Escape(channel)}' yet.[/]");
+                if (ownerRole is null)
+                    Stderr.MarkupLine($"[grey]No one has joined '{Markup.Escape(channel)}' yet.[/]");
+                else
+                    Stderr.MarkupLine(
+                        $"[grey]No active members. Owner role {Markup.Escape(ownerRole)} is vacant.[/]");
                 return Task.FromResult(0);
             }
+
+            if (ownerRole is not null && participants.All(p => !p.Owner))
+                Stderr.MarkupLine(
+                    $"[grey]Owner role {Markup.Escape(ownerRole)} is currently vacant.[/]");
 
             if (json)
             {
@@ -44,7 +53,7 @@ public static class WhoCommand
             }
 
             foreach (var p in participants)
-                Console.WriteLine($"{p.Role}  ·  wake {p.Wake}  ·  {p.MessageCount} msg  ·  last {FormatTime(p.LastActivity)}  ·  sid {ShortSid(p.Sid)}");
+                Console.WriteLine($"{p.Role}{(p.Owner ? "  ·  owner" : "")}  ·  wake {p.Wake}  ·  {p.MessageCount} msg  ·  last {FormatTime(p.LastActivity)}  ·  sid {ShortSid(p.Sid)}");
             return Task.FromResult(0);
         }));
 

@@ -169,7 +169,7 @@ public sealed class BehaviorTests
         Assert.Contains("Join as another role", takeover.Stderr);
         Assert.Contains("new channel", takeover.Stderr);
 
-        var participant = await cli.RunAsync("who", "harness-claim", "--json");
+        var participant = await cli.RunAsync("members", "list", "harness-claim", "--json");
         participant.ShouldSucceed();
         Assert.Contains("\"sid\":\"claude-owner\"", participant.Stdout);
     }
@@ -220,7 +220,7 @@ public sealed class BehaviorTests
             "join", "detected", "--as", "author");
         result.ShouldSucceed();
 
-        var participant = await cli.RunAsync("who", "detected", "--json");
+        var participant = await cli.RunAsync("members", "list", "detected", "--json");
         participant.ShouldSucceed();
         Assert.Equal("codex", JsonDocument.Parse(participant.Stdout).RootElement
             .GetProperty("wake").GetString());
@@ -241,7 +241,7 @@ public sealed class BehaviorTests
 
         result.ShouldSucceed();
         Assert.Contains("wake type pi persisted (detected from the active harness)", result.Stderr);
-        var roster = await cli.RunAsync("who", "pi-detect", "--json");
+        var roster = await cli.RunAsync("members", "list", "pi-detect", "--json");
         Assert.Contains("\"sid\":\"pi-session-id\"", roster.Stdout);
         Assert.Contains("\"wake\":\"pi\"", roster.Stdout);
     }
@@ -374,11 +374,11 @@ public sealed class BehaviorTests
         Assert.Contains("[closed]", closed.Stdout);
         Assert.Contains("marked the exchange closed", closed.Stderr);
 
-        var log = await cli.RunAsync("log", "inspect");
+        var log = await cli.RunAsync("messages", "log", "inspect");
         log.ShouldSucceed();
         Assert.Contains("truncated", log.Stdout);
         Assert.DoesNotContain("second line", log.Stdout);
-        var show = await cli.RunAsync("show", "inspect", "1");
+        var show = await cli.RunAsync("messages", "show", "inspect", "1");
         show.ShouldSucceed();
         Assert.Contains("second line", show.Stdout);
 
@@ -447,7 +447,7 @@ public sealed class BehaviorTests
         Assert.Equal("author", message.GetProperty("from").GetString());
         Assert.Equal("json body", message.GetProperty("text").GetString());
 
-        var who = await cli.RunAsync("who", "json", "--json");
+        var who = await cli.RunAsync("members", "list", "json", "--json");
         who.ShouldSucceed();
         foreach (var line in who.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             Assert.True(JsonDocument.Parse(line).RootElement.TryGetProperty("role", out _), line);

@@ -3,6 +3,9 @@ using System.CommandLine.Completions;
 using ParleyCli;
 using ParleyCli.Commands;
 using ParleyCli.Commands.Admin;
+using ParleyCli.Commands.Integrations;
+using ParleyCli.Commands.Members;
+using ParleyCli.Commands.Messages;
 using ParleyCli.Logging;
 using ParleyCli.Updates;
 using Serilog;
@@ -32,15 +35,13 @@ var rootCommand = new RootCommand(
 rootCommand.Directives.Add(new SuggestDirective());
 
 rootCommand.Subcommands.Add(JoinCommand.Create());
+rootCommand.Subcommands.Add(LeaveCommand.Create());
 rootCommand.Subcommands.Add(SendCommand.Create());
 rootCommand.Subcommands.Add(RecvCommand.Create());
-rootCommand.Subcommands.Add(WaitForJoinCommand.Create());
-rootCommand.Subcommands.Add(WhoCommand.Create());
-rootCommand.Subcommands.Add(LogCommand.Create());
-rootCommand.Subcommands.Add(ShowCommand.Create());
 rootCommand.Subcommands.Add(DropCommand.Create());
-rootCommand.Subcommands.Add(ClaudeChannelCommand.Create());
-rootCommand.Subcommands.Add(PiChannelCommand.Create());
+rootCommand.Subcommands.Add(MembersCommand.Create());
+rootCommand.Subcommands.Add(MessagesCommand.Create());
+rootCommand.Subcommands.Add(IntegrationsCommand.Create());
 rootCommand.Subcommands.Add(AdminCommand.Create());
 
 try

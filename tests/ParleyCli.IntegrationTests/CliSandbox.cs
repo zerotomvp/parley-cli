@@ -102,6 +102,9 @@ internal sealed class CliSandbox : IDisposable
     public string Transcript(string channel) =>
         Path.Combine(_store, "channels", $"{channel}.jsonl");
 
+    public string Roster(string channel) =>
+        Path.Combine(_store, "channels", $"{channel}.roster.jsonl");
+
     public string Cursor(string channel, string sid) =>
         Path.Combine(_store, "channels", $"{channel}.{sid}.cursor");
 

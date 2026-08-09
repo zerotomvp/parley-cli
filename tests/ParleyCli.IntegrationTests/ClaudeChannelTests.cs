@@ -12,7 +12,7 @@ public sealed class ClaudeChannelTests
     public async Task Live_channel_is_detected_per_send_and_receives_wake_notice()
     {
         using var cli = new CliSandbox();
-        var channel = cli.StartInteractive("claude-channel", "--sid", "recipient-sid");
+        var channel = cli.StartInteractive("integrations", "claude", "--sid", "recipient-sid");
         try
         {
             // A join probe only establishes that the endpoint exists. It must not race the MCP
@@ -75,7 +75,7 @@ public sealed class ClaudeChannelTests
     public async Task Disconnected_pipe_client_does_not_terminate_channel_server()
     {
         using var cli = new CliSandbox();
-        var channel = cli.StartInteractive("claude-channel", "--sid", "resilient-sid");
+        var channel = cli.StartInteractive("integrations", "claude", "--sid", "resilient-sid");
         try
         {
             // A probe client can disappear before reading its acknowledgement.
@@ -126,7 +126,7 @@ public sealed class ClaudeChannelTests
         using var cli = new CliSandbox();
         var channel = cli.StartInteractiveWithEnvironment(
             new Dictionary<string, string> { ["PARLEY_TRACE"] = "1" },
-            "claude-channel", "--sid", "fault-sid");
+            "integrations", "claude", "--sid", "fault-sid");
         var stderr = channel.Process.StandardError.ReadToEndAsync();
         try
         {
@@ -151,7 +151,7 @@ public sealed class ClaudeChannelTests
         const string newSid = "new-claude-sid";
         cli.ConfigureClaudeAgents(AgentsJson(oldSid, pid: 4242, startedAt: 123456));
 
-        var channel = cli.StartInteractive("claude-channel", "--sid", oldSid);
+        var channel = cli.StartInteractive("integrations", "claude", "--sid", oldSid);
         try
         {
             await InitializeAsync(channel.Process);
@@ -172,8 +172,8 @@ public sealed class ClaudeChannelTests
             Assert.Contains("No new messages", repaired.Stderr);
             Assert.Equal("1", File.ReadAllText(cli.Cursor("clear-one", newSid)));
 
-            var firstRoster = await cli.RunAsync("who", "clear-one", "--json");
-            var secondRoster = await cli.RunAsync("who", "clear-two", "--json");
+            var firstRoster = await cli.RunAsync("members", "list", "clear-one", "--json");
+            var secondRoster = await cli.RunAsync("members", "list", "clear-two", "--json");
             Assert.Contains(newSid, firstRoster.Stdout);
             Assert.Contains(newSid, secondRoster.Stdout);
             Assert.DoesNotContain(oldSid, firstRoster.Stdout);
@@ -208,7 +208,7 @@ public sealed class ClaudeChannelTests
         const long claudeStartedAt = 123456;
         cli.ConfigureClaudeAgents(AgentsJson(oldSid, claudePid, claudeStartedAt));
 
-        var channel = cli.StartInteractive("claude-channel", "--sid", oldSid);
+        var channel = cli.StartInteractive("integrations", "claude", "--sid", oldSid);
         var registration = cli.ClaudeEndpointRegistration(claudePid, claudeStartedAt);
         try
         {
@@ -260,7 +260,7 @@ public sealed class ClaudeChannelTests
             """{"registrationId":"stale","claudePid":41,"claudeStartedAt":99,"endpointSid":"old","channelServerPid":1,"registeredAt":"old"}""");
         await File.WriteAllTextAsync(malformed, "not json");
 
-        var channel = cli.StartInteractive("claude-channel", "--sid", sid);
+        var channel = cli.StartInteractive("integrations", "claude", "--sid", sid);
         var current = cli.ClaudeEndpointRegistration(pid: 42, startedAt: 100);
         try
         {
@@ -320,7 +320,7 @@ public sealed class ClaudeChannelTests
         reclaimed.ShouldSucceed();
         Assert.Contains("reclaimed role", reclaimed.Stderr);
 
-        var who = await cli.RunAsync("who", "force-claude", "--json");
+        var who = await cli.RunAsync("members", "list", "force-claude", "--json");
         Assert.Contains("replacement-sid", who.Stdout);
     }
 

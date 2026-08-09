@@ -49,7 +49,7 @@ public class ChannelStore
     public string ChannelsDir => Path.Combine(_root, "channels");
 
     private string TranscriptPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.jsonl");
-    // Append-only role-claim log, replayed to resolve who owns each role (latest claim wins).
+    // Append-only membership log, replayed to resolve claims and targeted removals.
     private string RosterPath(string channel) => Path.Combine(ChannelsDir, $"{channel}.roster.jsonl");
     // Cursor is tagged with the sender's unique session id, so any number of sessions
     // can share a channel and each track its own read position independently.
@@ -83,13 +83,36 @@ public class ChannelStore
         return result;
     }
 
-    /// <summary>Current owner of each role: the sid of the latest claim for it (latest entry wins).</summary>
+    private static bool IsRemoval(RosterEntryWire entry) =>
+        string.Equals(entry.Kind, "remove", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Current owner of each role. Claims replace the current owner; a removal tombstone vacates
+    /// the role only when its recorded target SID still owns it, making removal safe against a
+    /// concurrent reclaim.
+    /// </summary>
     private Dictionary<string, RosterEntryWire> Owners(string channel)
     {
         var owners = new Dictionary<string, RosterEntryWire>();
-        foreach (var e in ReadRoster(channel)) owners[e.Role] = e; // later entries overwrite earlier
+        foreach (var entry in ReadRoster(channel))
+        {
+            if (IsRemoval(entry))
+            {
+                if (owners.TryGetValue(entry.Role, out var current) && current.Sid == entry.Sid)
+                    owners.Remove(entry.Role);
+                continue;
+            }
+            owners[entry.Role] = entry;
+        }
         return owners;
     }
+
+    /// <summary>The role whose claim first created the channel roster.</summary>
+    public string? OwnerRole(string channel) =>
+        ReadRoster(channel).FirstOrDefault(entry => !IsRemoval(entry))?.Role;
+
+    private RosterEntryWire? LastClaimOf(string channel, string role) =>
+        ReadRoster(channel).LastOrDefault(entry => entry.Role == role && !IsRemoval(entry));
 
     /// <summary>The sid that currently owns <paramref name="role"/> on the channel, or null if unclaimed.</summary>
     public string? OwnerOf(string channel, string role) =>
@@ -129,7 +152,9 @@ public class ChannelStore
         Directory.CreateDirectory(ChannelsDir);
         var membership = MembershipOf(channel, role);
         var owner = membership?.Sid;
-        var storedWake = membership?.Wake;
+        // Wake type is a property of the role, not merely its current occupant. Removing a member
+        // vacates the role but does not permit a later join to change its registered harness type.
+        var storedWake = LastClaimOf(channel, role)?.Wake;
         if (owner == sid && storedWake == wake)
         {
             // A resumed Claude session can keep its UUID while moving to a new OS process. Refresh
@@ -183,6 +208,52 @@ public class ChannelStore
             SetCursor(channel, sid, ReadAll(channel).Count);
 
         return result;
+    }
+
+    /// <summary>
+    /// Vacates a role by appending a targeted removal tombstone. The caller supplies the actor for
+    /// auditability; authorization is performed by the public leave/remove methods below.
+    /// </summary>
+    private void AppendRemoval(string channel, RosterEntryWire target, string byRole, string bySid)
+    {
+        var wire = new RosterEntryWire(
+            DateTimeOffset.UtcNow.ToString("o"), target.Role, target.Sid,
+            Kind: "remove", ByRole: byRole, BySid: bySid);
+        AtomicAppend(RosterPath(channel), Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(wire, ParleyJsonContext.Default.RosterEntryWire) + "\n"));
+
+        var current = MembershipOf(channel, target.Role);
+        if (current is not null)
+            throw new ArgumentException(current.Sid == target.Sid
+                ? $"Could not remove role '{target.Role}'; retry the operation."
+                : $"Role '{target.Role}' changed owners concurrently and was not removed.");
+    }
+
+    /// <summary>Leaves the channel as the currently owning session.</summary>
+    public void Leave(string channel, string role, string sid)
+    {
+        VerifyMembership(channel, role, sid);
+        AppendRemoval(channel, MembershipOf(channel, role)!, role, sid);
+    }
+
+    /// <summary>Removes one active role. Only the current owner of the creator role may do so.</summary>
+    public void RemoveMember(string channel, string actorRole, string actorSid, string targetRole)
+    {
+        VerifyMembership(channel, actorRole, actorSid);
+        var ownerRole = OwnerRole(channel)
+            ?? throw new ArgumentException($"Channel '{channel}' has no owner.");
+        if (actorRole != ownerRole)
+            throw new ArgumentException(
+                $"Only channel owner role '{ownerRole}' may remove members from '{channel}'.");
+        if (targetRole == ownerRole)
+            throw new ArgumentException(
+                $"Channel owner role '{ownerRole}' cannot be removed by another member operation; " +
+                $"its session may leave with `parley leave {channel} --as {ownerRole}`.");
+
+        var target = MembershipOf(channel, targetRole)
+            ?? throw new ArgumentException(
+                $"Role '{targetRole}' is not an active member of channel '{channel}'.");
+        AppendRemoval(channel, target, actorRole, actorSid);
     }
 
     /// <summary>
@@ -256,14 +327,14 @@ public class ChannelStore
     public List<Participant> Participants(string channel)
     {
         var msgs = ReadAll(channel);
-        return ReadRoster(channel)
-            .GroupBy(e => e.Role)
-            .Select(g => g.Last()) // current owner = latest claim for the role
+        var ownerRole = OwnerRole(channel);
+        return Owners(channel).Values
             .Select(e =>
             {
                 var mine = msgs.Where(m => IsSameSession(channel, m.Sid, e.Sid)).ToList();
                 var last = mine.Count > 0 ? mine[^1].Ts : e.Ts;
-                return new Participant(e.Role, e.Sid, e.Wake ?? "never", e.Ts, mine.Count, last);
+                return new Participant(e.Role, e.Sid, e.Wake ?? "never", e.Ts, mine.Count, last,
+                    e.Role == ownerRole);
             })
             .OrderBy(p => p.JoinedAt, StringComparer.Ordinal)
             .ToList();

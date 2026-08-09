@@ -46,7 +46,7 @@ public static class LogCommand
             var shown = limit > 0 && all.Count > limit ? all.Skip(all.Count - limit).ToList() : all;
             if (shown.Count < all.Count)
                 Stderr.MarkupLine(
-                    $"[grey]… {all.Count - shown.Count} older message(s) hidden — 'parley log {Markup.Escape(channel)} --limit 0' for all[/]");
+                    $"[grey]… {all.Count - shown.Count} older message(s) hidden — 'parley messages log {Markup.Escape(channel)} --limit 0' for all[/]");
 
             // JSON stays full (machine-readable); human output previews the head and marks any cut-off.
             PrintMessages(shown, json, previewChars: json ? null : PreviewChars, channel: channel);

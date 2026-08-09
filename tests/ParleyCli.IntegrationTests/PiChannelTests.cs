@@ -8,7 +8,7 @@ public sealed class PiChannelTests
     public async Task Live_extension_bridge_is_detected_and_acknowledges_wake_submission()
     {
         using var cli = new CliSandbox();
-        var bridge = cli.StartInteractive("pi-channel", "--sid", "pi-recipient-sid");
+        var bridge = cli.StartInteractive("integrations", "pi", "--sid", "pi-recipient-sid");
         try
         {
             using (var ready = JsonDocument.Parse(await ReadLineAsync(bridge.Process.StandardOutput)))
@@ -52,7 +52,7 @@ public sealed class PiChannelTests
     public async Task Extension_rejection_is_reported_without_losing_the_message()
     {
         using var cli = new CliSandbox();
-        var bridge = cli.StartInteractive("pi-channel", "--sid", "pi-reject-sid");
+        var bridge = cli.StartInteractive("integrations", "pi", "--sid", "pi-reject-sid");
         try
         {
             _ = await ReadLineAsync(bridge.Process.StandardOutput);

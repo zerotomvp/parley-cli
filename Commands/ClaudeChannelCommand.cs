@@ -9,7 +9,7 @@ public static class ClaudeChannelCommand
 {
     public static Command Create()
     {
-        var command = new Command("claude-channel", "Run the one-way Claude Code MCP wake channel over stdio");
+        var command = new Command("claude", "Run the one-way Claude Code MCP wake channel over stdio");
         command.SetAction(Safe(async (pr, ct) =>
         {
             ApplyLogLevel(pr);

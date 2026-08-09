@@ -18,7 +18,7 @@ public static class GlobalOptions
     /// </summary>
     public static readonly Option<string?> As = new Option<string?>("--as")
     {
-        Description = "This session's role on the channel (required for join/send/recv)",
+        Description = "This session's role on the channel (required for participant and member-admin actions)",
         Recursive = true
     };
 
