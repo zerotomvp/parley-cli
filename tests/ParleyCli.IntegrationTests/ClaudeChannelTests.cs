@@ -18,7 +18,8 @@ public sealed class ClaudeChannelTests
             // A join probe only establishes that the endpoint exists. It must not race the MCP
             // initialization handshake, which Claude can complete after the CLI has already joined.
             (await cli.RunAsync("join", "claude-wake", "--as", "sender", "--sid", "sender-sid", "--wake", "never")).ShouldSucceed();
-            var joined = await cli.RunAsync("join", "claude-wake", "--as", "recipient", "--sid", "recipient-sid", "--wake", "claude");
+            var joined = await JoinWhenEndpointReadyAsync(
+                cli, "claude-wake", "recipient", "recipient-sid");
             joined.ShouldSucceed();
             Assert.True(joined.Stderr.Contains("live Claude Code channel endpoint is available"),
                 $"join did not detect the uninitialized channel. join stderr:\n{joined.Stderr}");
@@ -102,8 +103,8 @@ public sealed class ClaudeChannelTests
 
             // Neither disconnected client is required to produce MCP output. The observable
             // contract is that the server accepts a later probe and initialized wake.
-            var joined = await cli.RunAsync("join", "resilient", "--as", "recipient",
-                "--sid", "resilient-sid", "--wake", "claude");
+            var joined = await JoinWhenEndpointReadyAsync(
+                cli, "resilient", "recipient", "resilient-sid");
             joined.ShouldSucceed();
             Assert.Contains("live Claude Code channel endpoint is available", joined.Stderr);
 
@@ -335,6 +336,22 @@ public sealed class ClaudeChannelTests
         await process.StandardInput.WriteLineAsync(
             """{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}""");
         await process.StandardInput.FlushAsync();
+    }
+
+    private static async Task<CliResult> JoinWhenEndpointReadyAsync(
+        CliSandbox cli, string channel, string role, string sid)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            var joined = await cli.RunAsync(
+                "join", channel, "--as", role, "--sid", sid, "--wake", "claude");
+            joined.ShouldSucceed();
+            if (joined.Stderr.Contains("live Claude Code channel endpoint is available"))
+                return joined;
+
+            await Task.Delay(100, timeout.Token);
+        }
     }
 
     private static async Task WaitForFileAsync(string path)
