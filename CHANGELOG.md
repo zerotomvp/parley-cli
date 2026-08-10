@@ -3,6 +3,12 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [2.1.1] - 2026-08-10
+
+### Bug fixes
+
+- prevent wake notices from skipping messages ([`efb2956`](https://github.com/zerotomvp/parley-cli/commit/efb29564ba6b22c5d73ee18418d3b85b18b24fa0))
+
 ## [2.1.0] - 2026-08-09
 
 ### Features
@@ -175,3 +181,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [1.3.2]: https://github.com/zerotomvp/parley-cli/compare/v1.3.1...v1.3.2
 [2.0.0]: https://github.com/zerotomvp/parley-cli/compare/v1.3.2...v2.0.0
 [2.1.0]: https://github.com/zerotomvp/parley-cli/compare/v2.0.0...v2.1.0
+[2.1.1]: https://github.com/zerotomvp/parley-cli/compare/v2.1.0...v2.1.1
