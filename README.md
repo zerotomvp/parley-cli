@@ -106,7 +106,12 @@ parley recv review-xyzab --as reviewer --last-seen 12 --wait
 ```
 
 This explicit checkpoint can replay messages when a previous CLI process emitted
-them but an agent harness failed to put that output into model context.
+them but an agent harness failed to put that output into model context. A wake notice
+only reports that a sequence is pending: do not count the sequence printed in the
+notice as seen unless the message body itself is already in context. When uncertain,
+use the prior checkpoint or `0`; replaying a message is safe. Parley reconciles the
+model checkpoint with its own delivery cursor and reads from the earlier one, favoring
+a harmless replay over silently skipping a message.
 
 Reply to a role or broadcast to all participants:
 

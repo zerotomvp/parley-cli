@@ -74,8 +74,14 @@ public static class RecvCommand
             var emittedThrough = store.GetCursor(channel, me.Sid);
             if (lastSeen < emittedThrough)
                 Stderr.MarkupLine($"[yellow]Note:[/] replaying from model checkpoint [blue]{lastSeen}[/]; this CLI previously emitted through [blue]{emittedThrough}[/].");
+            else if (lastSeen > emittedThrough)
+                Stderr.MarkupLine($"[yellow]Note:[/] model checkpoint [blue]{lastSeen}[/] is ahead of this CLI's delivery checkpoint [blue]{emittedThrough}[/]; replaying from [blue]{emittedThrough}[/] to avoid skipping a message.");
 
-            var unread = snapshot.Where(m => m.Seq > lastSeen
+            // Either checkpoint can lag reality: CLI output may have been backgrounded before it
+            // reached model context, while a model may mistake a numbered wake notice for the
+            // message itself. The lower checkpoint gives at-least-once delivery in both cases.
+            var receiveAfter = Math.Min(lastSeen, emittedThrough);
+            var unread = snapshot.Where(m => m.Seq > receiveAfter
                 && !store.IsSameSession(channel, m.Sid, me.Sid) && m.IsFor(me.Role)).ToList();
 
             if (unread.Count == 0 && wait)
@@ -83,7 +89,7 @@ public static class RecvCommand
                 Stderr.MarkupLine(timeout > 0
                     ? $"[cyan]Waiting up to {timeout}s for a message…[/]"
                     : "[cyan]Waiting for a message (no timeout — Ctrl+C to stop)…[/]");
-                var (satisfied, waited) = await store.WaitForPeer(channel, me.Sid, me.Role, lastSeen, timeout, ct);
+                var (satisfied, waited) = await store.WaitForPeer(channel, me.Sid, me.Role, receiveAfter, timeout, ct);
                 // Only reachable with a finite --timeout; an indefinite wait never returns unsatisfied.
                 if (!satisfied)
                 {
@@ -91,7 +97,7 @@ public static class RecvCommand
                     return 2; // timeout: nothing yet
                 }
                 snapshot = waited;
-                unread = snapshot.Where(m => m.Seq > lastSeen
+                unread = snapshot.Where(m => m.Seq > receiveAfter
                     && !store.IsSameSession(channel, m.Sid, me.Sid) && m.IsFor(me.Role)).ToList();
             }
 

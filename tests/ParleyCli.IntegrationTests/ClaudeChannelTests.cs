@@ -53,7 +53,9 @@ public sealed class ClaudeChannelTests
             Assert.Contains("[Parley #1 pending · claude-wake · recipient]", content);
             Assert.Contains("parley recv claude-wake --as recipient --last-seen", content);
             Assert.Contains("One foreground receive only—no --wait, &, or listener", content);
-            Assert.Contains("Notice does not mark #1 seen", content);
+            Assert.Contains("highest message seq whose body was read; 0 if none", content);
+            Assert.Contains("Do not pass 1 solely from this notice; use the prior checkpoint or 0", content);
+            Assert.Contains("Replay is safe", content);
 
             var sentAgain = await cli.RunAsync("send", "claude-wake", "--as", "sender", "--sid", "sender-sid",
                 "--to", "recipient", "-m", "One more request.");

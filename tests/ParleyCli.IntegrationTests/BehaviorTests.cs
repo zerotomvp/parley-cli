@@ -308,6 +308,24 @@ public sealed class BehaviorTests
     }
 
     [Fact]
+    public async Task Last_seen_ahead_of_cli_cursor_cannot_skip_an_unemitted_message()
+    {
+        using var cli = new CliSandbox();
+        await Join(cli, "ahead-checkpoint", ("author", "a"), ("reviewer", "r"));
+        (await Send(cli, "ahead-checkpoint", "author", "a", "--to", "reviewer", "-m", "already-read")).ShouldSucceed();
+        (await Recv(cli, "ahead-checkpoint", "reviewer", "r", 0)).ShouldSucceed();
+
+        (await Send(cli, "ahead-checkpoint", "author", "a", "--to", "reviewer", "-m", "must-not-skip")).ShouldSucceed();
+        var received = await Recv(cli, "ahead-checkpoint", "reviewer", "r", 2);
+
+        received.ShouldSucceed();
+        Assert.Contains("must-not-skip", received.Stdout);
+        var status = Regex.Replace(received.Stderr, @"\s+", " ");
+        Assert.Contains("model checkpoint 2 is ahead of this CLI's delivery checkpoint 1", status);
+        Assert.Contains("replaying from 1 to avoid skipping a message", status);
+    }
+
+    [Fact]
     public async Task Blocking_receive_wakes_and_bounded_wait_returns_two()
     {
         using var cli = new CliSandbox();
