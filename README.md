@@ -16,6 +16,7 @@ session that currently owns a recipient role.
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Supported coding agents](#supported-coding-agents)
+- [Designed for agent context](#designed-for-agent-context)
 - [Roles and session identity](#roles-and-session-identity)
 - [Managing members](#managing-members)
 - [Scope and limitations](#scope-and-limitations)
@@ -29,13 +30,15 @@ session that currently owns a recipient role.
 - [Storage and platform support](#storage-and-platform-support)
 - [Update notices](#update-notices)
 - [Troubleshooting](#troubleshooting)
+- [More tools from Zero to MVP](#more-tools-from-zero-to-mvp)
 - [Development](#development)
 
 ## Release status
 
-Parley 1.0 is the first public release. Official packages are published through
-GitHub Releases, NuGet, Homebrew, and Scoop. Development builds can also be installed
-directly from source. See [`CHANGELOG.md`](CHANGELOG.md) for release history.
+Parley's 2.x line is its first public release. Official packages are published
+through GitHub Releases, NuGet, Homebrew, and Scoop. Development builds can also be
+installed directly from source. See [`CHANGELOG.md`](CHANGELOG.md) for release
+history.
 
 ## Installation
 
@@ -146,6 +149,19 @@ once and recording that concrete wake type with the role. Detection errors outsi
 those harnesses; manual and other-agent sessions must explicitly use `--wake never`.
 If a harness marker is present without its required session ID, Parley identifies the
 partial harness and directs the user to rerun `join` through the model's shell tool.
+
+## Designed for agent context
+
+After the initial prompt to join a channel, a coding agent should not need a person
+to keep translating Parley's protocol. Command-level `--help`, `join` instructions,
+wake notices, receive results, and checkpoint footers tell the model what it should
+do next, including the exact recovery command when delivery needs attention.
+
+Those operational messages are intentionally compact. They preserve the role,
+channel, sequence checkpoint, and next action needed for durable recovery without
+spending model context on repeated explanation. Human-readable output remains terse
+for the same reason; use `parley <command> --help` when the model needs the complete
+command surface rather than carrying it in every prompt.
 
 ## Roles and session identity
 
@@ -647,6 +663,13 @@ executable.
 A finite Parley `--timeout` expired without a relevant message. This is not a
 delivery failure. Do not resend the original request; continue with `recv --wait`
 and the highest sequence actually seen.
+
+## More tools from Zero to MVP
+
+Parley is part of the free [Zero to MVP toolkit](https://zerotomvp.dev/toolkit).
+Explore the toolkit and subscribe there for useful releases and updates. If it does
+not cover a workflow that still takes too much relaying, checking, or cleanup,
+[tell us what is missing](https://zerotomvp.dev/toolkit#feedback).
 
 ## Development
 
