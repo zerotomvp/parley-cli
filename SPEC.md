@@ -6,8 +6,11 @@ operating guidance live in [`README.md`](README.md).
 
 ## Process and storage model
 
-Parley has no resident process. Every CLI invocation is short-lived and coordinates
-through shared files under `~/.parley/channels/`, overridden by `PARLEY_HOME`.
+Parley's durable channel protocol has no resident coordinator. Ordinary CLI
+invocations are short-lived and coordinate through shared files under
+`~/.parley/channels/`, overridden by `PARLEY_HOME`. The optional Claude and Pi wake
+integrations do run session-scoped helper processes, and Codex wake-up talks to its
+existing app-server daemon; none of these processes owns message delivery state.
 
 For a channel `<channel>`:
 
@@ -27,9 +30,10 @@ For a channel `<channel>`:
   CLI to that session. It is diagnostic delivery state, not proof that an agent
   harness placed the output into model context.
 
-Channel names, roles, and session IDs are validated to `[A-Za-z0-9_-]`. Dots are
-excluded because `.` separates fields in cursor filenames; allowing dots would make
-the encoding ambiguous and permit traversal names such as `.` and `..`.
+Channel names, roles, and session IDs are limited to 100 characters and validated to
+`[A-Za-z0-9_-]`. Dots are excluded because `.` separates fields in cursor filenames;
+allowing dots would make the encoding ambiguous and permit traversal names such as
+`.` and `..`.
 
 ## Identity and ownership invariants
 
@@ -38,7 +42,7 @@ Each participant has two identifiers:
 - `role` is the explicit, addressable name supplied with `--as`.
 - `sid` is the session ownership token and cursor key. Explicit `--sid` and
   `PARLEY_ID` take precedence, followed by the first matching catalog row and then
-the role fallback.
+  the role fallback.
 
 `whoami` is the exception to role fallback because the role is its output rather
 than an input. It requires an explicit/session-environment SID, scans roster files
@@ -77,12 +81,13 @@ the role from roster waits and broadcast wake resolution. It does not delete the
 transcript or cursor. A vacant role may be joined again, but its last claim preserves
 the role's immutable wake type.
 
-`join --wake detect` (the default) selects the first catalog row whose environment
-variable is non-empty; a dedicated process marker takes precedence over session IDs
-inherited from a parent harness. A marker without its row's required session ID is a
-partial detection: it still takes precedence over inherited harness IDs, but `join`
-errors with guidance to rerun through the model's shell tool. The same check prevents
-an explicit harness wake from registering against a role-derived fallback SID.
+`join --wake detect` (the default) selects the first catalog row whose session-ID
+environment variable is non-empty; a dedicated enabled process marker takes
+precedence over session IDs inherited from a parent harness. A marker without its
+row's required session ID is a partial detection: it still takes precedence over
+inherited harness IDs, but `join` errors with guidance to rerun through the model's
+shell tool. The same check prevents an explicit harness wake from registering against
+a role-derived fallback SID.
 Detection errors if no row matches. An explicit wake accepts a catalog value or
 `never`. Only the resolved concrete value is persisted.
 It is immutable for a role: a forced reclaim may replace its SID only when the wake
@@ -162,16 +167,20 @@ It does not inspect the transcript and cannot create or advance a message cursor
 
 ## Model-context checkpoints
 
-The on-disk cursor records what a CLI process emitted, while `recv --last-seen`
-records what the model asserts is actually in its context. Every receive requires
-this explicit sequence. When `last-seen` is behind the stored cursor, Parley replays
-addressed messages after the model checkpoint. This repairs the failure mode where
-an agent harness backgrounds a command and never injects its output into the model's
-next turn.
+The on-disk cursor is the CLI's diagnostic transcript watermark: after a successful
+receive it records the end of the transcript snapshot the CLI inspected, which may
+include intervening messages addressed to other roles. `recv --last-seen` records
+what the model asserts is actually in its context. Every receive requires this
+explicit sequence. Parley reads from the lower of the model checkpoint and stored
+cursor, replaying addressed messages when either side is behind. This repairs both a
+harness backgrounding output before it reaches model context and a model reporting a
+checkpoint ahead of an unemitted message.
 
 `recv --wait` polls until a relevant message arrives. It is unbounded by default;
-`--timeout` returns exit code `2`. `send --wait` durably appends first and then uses
-the same receive behavior, so a timeout must never cause a resend.
+`--timeout` returns exit code `2`. `send --wait` durably appends first, then waits for
+a relevant peer message after the newly appended message and advances the sender's
+stored cursor when it prints that reply. Unlike `recv`, it has no model-supplied
+`--last-seen` checkpoint. A timeout must never cause a resend.
 
 The wait loop deliberately polls and re-reads every 200 ms instead of using
 `FileSystemWatcher`:
@@ -195,10 +204,17 @@ Windows uses `CreateFile` with `FILE_APPEND_DATA` and one `WriteFile`, giving th
 same kernel-EOF append guarantee; `FileMode.Append` is insufficient because its
 user-space EOF positioning can lose concurrent writes.
 
-Readers ignore a torn final JSONL line. `drop` is the exceptional mutation: it
-rewrites through a temporary file and atomic rename, then rolls back cursors that
-had passed the removed message. Only the sender may retract its last message unless
-an operator supplies `--force`.
+Readers skip malformed JSONL records, including a torn final line observed during a
+concurrent append. `drop` is the exceptional mutation: it rewrites through a
+temporary file and atomic rename, then rolls back cursors that had passed the removed
+message. Only the sender may retract its last message unless an operator supplies
+`--force`.
+
+After appending, `send` re-reads the transcript and prints its current line count as
+the new sequence. This is exact for sequential sends. With simultaneous writers the
+durable records remain complete and acquire their authoritative sequences from line
+order, but a sender's immediately reported sequence can be displaced by a concurrent
+append that lands between its write and re-read.
 
 ## Automatic wake protocols
 
@@ -285,7 +301,8 @@ For a recipient registered with `wake: codex`:
    rollout, falling back to a full `thread/read` only when the tail is unavailable or
    inconclusive; for an idle thread, it needs no turn history;
 7. sends `turn/steer` or `turn/start` with a deterministic `clientUserMessageId`;
-8. re-reads state and retries once if the thread changes state during submission;
+8. after a submission RPC error, re-reads state and retries once, covering a thread
+   changing state during submission;
 9. after a canceled or timed-out submission, checks the rollout for the client ID.
    A persisted message counts as success; otherwise it retries once over a fresh
    connection using the same ID, then performs one final reconciliation.
@@ -295,9 +312,11 @@ roster entry. `wake: never` performs no notification. The injected text is only 
 notice directing the recipient to run one nonblocking foreground `parley recv`. It
 explicitly prohibits adding `--wait`, appending `&`, or starting a persistent listener
 because those forms can advance a cursor without returning output to model context.
-The notice includes the correct channel, role, and model checkpoint. The actual
-message body remains solely
-in the durable transcript. A missing harness channel or extension, Codex executable,
+The notice includes the pending message sequence, correct channel and role, and an
+explicit placeholder instructing the model to supply its own highest actually-read
+sequence (or `0`). It warns that the pending sequence in the notice is not itself a
+model checkpoint. The actual message body remains solely in the durable transcript.
+A missing harness channel or extension, Codex executable,
 stopped daemon, or absent loaded SID falls back to filesystem delivery and emits an actionable
 non-fatal unavailable-endpoint note. A failure after a live Claude connection or
 loaded Codex SID match is reported distinctly. Wake failure cannot remove or duplicate the durable
@@ -309,10 +328,12 @@ availability as separate facts before printing operating guidance. Its probe res
 informational; send later attempts the role's stored transport directly. A fallback
 receive must remain a foreground blocking listener so its output reaches model context.
 
-A successful `recv` emits one checkpoint footer. For any cataloged harness wake
-it says only to await the next wake and forbids a listener. For `wake: never`, it
-includes the next `recv --wait` command marked foreground-only. It does not emit a
-redundant message-count success line.
+A successful `recv` that prints messages emits one checkpoint footer. For any
+cataloged harness wake it prints only the checkpoint number; the earlier `join`
+guidance establishes that the session should await wake notices rather than maintain
+a listener. For `wake: never`, the footer also includes the next `recv --wait`
+command marked foreground-only. It does not emit a redundant message-count success
+line.
 
 ## Administrative behavior
 
@@ -325,10 +346,14 @@ threshold, defaulting to 30 days. An empty transcript falls back to file modific
 time. Prune previews targets, supports dry-run, and refuses non-interactive deletion
 without explicit confirmation.
 
-Parley has no settings or secrets layer. Dependency injection carries only the
-logging switch and `ChannelStore`.
+Parley has no secrets layer. Its small configuration surface controls tracing and
+release checks through the platform application-data `parley-cli/config.json` file
+(or `PARLEY_CONFIG`) and environment overrides described above. Dependency injection
+wires the logging switch, `ChannelStore`, harness wake clients, channel servers, and
+Claude lifecycle helpers; it does not introduce another source of persisted state.
 
-All persisted, CLI-output, harness-channel, and Codex JSON shapes use compile-time generated
-`System.Text.Json` metadata. This keeps protocol types explicit and makes Parley's
-own serialization paths safe for single-file and trim analysis without reflection
-fallback.
+Channel-state, CLI-output, harness-channel, endpoint-registration, and Codex protocol
+JSON shapes use compile-time-generated `System.Text.Json` metadata. Configuration,
+release metadata, and the release-check cache use private reflection-serialized
+shapes. Keeping the protocol types explicit makes the delivery and wake paths safe
+for single-file and trim analysis without reflection fallback.
