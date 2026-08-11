@@ -17,6 +17,7 @@ Parley is a free tool in the [Zero to MVP toolkit](https://zerotomvp.dev/toolkit
 ## Contents
 
 - [Installation](#installation)
+- [Changelog](CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Bootstrap an agent session](#bootstrap-an-agent-session)
 - [Supported coding agents](#supported-coding-agents)
