@@ -150,7 +150,7 @@ internal sealed class CliSandbox : IDisposable
         UpdateClaudeAgents(json);
         var state = Path.Combine(_store, "claude-agents.json");
         var path = Path.Combine(_fakeBin, "claude");
-        File.WriteAllText(path, $"#!/bin/sh\nexec /bin/cat '{state}'\n");
+        File.WriteAllText(path, $"#!/bin/sh\nexec '{FindOnPath("cat")}' '{state}'\n");
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
@@ -161,6 +161,17 @@ internal sealed class CliSandbox : IDisposable
         Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
         ?? Environment.ProcessPath
         ?? "dotnet";
+
+    private static string FindOnPath(string executable)
+    {
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(directory, executable);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException($"Could not find '{executable}' on PATH.");
+    }
 }
 
 internal sealed class RunningCli
