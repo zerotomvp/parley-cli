@@ -3,6 +3,19 @@
 All notable changes to Parley are generated from Git commit subjects and release tags.
 Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 
+## [2.2.0] - 2026-08-25
+
+### Features
+
+- broadcast channel departures ([`e9902f4`](https://github.com/zerotomvp/parley-cli/commit/e9902f49fe077cc2ff1d30dd753eed2e0e73eda7))
+
+### Documentation
+
+- explain model-oriented CLI output ([`01958c6`](https://github.com/zerotomvp/parley-cli/commit/01958c6602aaefea53a31f34383bbfad8567e08f))
+- align protocol specification with implementation ([`eb3d617`](https://github.com/zerotomvp/parley-cli/commit/eb3d617cf899c46915690c05e61e76fa391cb2a3))
+- restructure Parley README ([`bf2b89e`](https://github.com/zerotomvp/parley-cli/commit/bf2b89e3763479c324bf43e922be7835d5492d3e))
+- link changelog from README contents ([`a0100e8`](https://github.com/zerotomvp/parley-cli/commit/a0100e82b7a45e97108dec7052e96400623ad388))
+
 ## [2.1.1] - 2026-08-10
 
 ### Bug fixes
@@ -182,3 +195,4 @@ Internal-only test, chore, CI, style, refactor, and merge commits are omitted.
 [2.0.0]: https://github.com/zerotomvp/parley-cli/compare/v1.3.2...v2.0.0
 [2.1.0]: https://github.com/zerotomvp/parley-cli/compare/v2.0.0...v2.1.0
 [2.1.1]: https://github.com/zerotomvp/parley-cli/compare/v2.1.0...v2.1.1
+[2.2.0]: https://github.com/zerotomvp/parley-cli/compare/v2.1.1...v2.2.0
