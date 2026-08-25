@@ -282,11 +282,15 @@ public class ChannelStore
                 : $"Role '{target.Role}' changed owners concurrently and was not removed.");
     }
 
-    /// <summary>Leaves the channel as the currently owning session.</summary>
-    public void Leave(string channel, string role, string sid)
+    /// <summary>
+    /// Leaves the channel as the currently owning session and records a durable broadcast so the
+    /// remaining members can observe the departure.
+    /// </summary>
+    public Message Leave(string channel, string role, string sid)
     {
         VerifyMembership(channel, role, sid);
         AppendRemoval(channel, MembershipOf(channel, role)!, role, sid);
+        return Append(channel, role, sid, $"{role} left the channel.", null, broadcast: true);
     }
 
     /// <summary>Removes one active role. Only the current owner of the creator role may do so.</summary>

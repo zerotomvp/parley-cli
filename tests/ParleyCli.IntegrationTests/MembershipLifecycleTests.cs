@@ -36,6 +36,20 @@ public sealed class MembershipLifecycleTests
             "leave", "leave-flow", "--as", "worker", "--sid", "worker-sid");
         left.ShouldSucceed();
         Assert.Contains("vacated role", left.Stderr);
+        Assert.Contains("broadcast #1", left.Stderr);
+
+        var notice = JsonDocument.Parse((await File.ReadAllLinesAsync(
+            cli.Transcript("leave-flow"))).Single()).RootElement;
+        Assert.Equal("worker", notice.GetProperty("from").GetString());
+        Assert.Equal("worker-sid", notice.GetProperty("sid").GetString());
+        Assert.Equal("worker left the channel.", notice.GetProperty("text").GetString());
+        Assert.True(notice.GetProperty("broadcast").GetBoolean());
+
+        var received = await cli.RunAsync(
+            "recv", "leave-flow", "--as", "lead", "--sid", "lead-sid",
+            "--last-seen", "0", "--json");
+        received.ShouldSucceed();
+        Assert.Contains("\"text\":\"worker left the channel.\"", received.Stdout);
 
         var listed = await cli.RunAsync("members", "list", "leave-flow", "--json");
         listed.ShouldSucceed();

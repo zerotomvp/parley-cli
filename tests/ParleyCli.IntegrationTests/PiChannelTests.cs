@@ -5,6 +5,41 @@ namespace ParleyCli.IntegrationTests;
 public sealed class PiChannelTests
 {
     [Fact]
+    public async Task Leave_broadcast_wakes_the_remaining_member()
+    {
+        using var cli = new CliSandbox();
+        var bridge = cli.StartInteractive("integrations", "pi", "--sid", "pi-member-sid");
+        try
+        {
+            _ = await ReadLineAsync(bridge.Process.StandardOutput);
+            (await cli.RunAsync("join", "pi-leave", "--as", "departing",
+                "--sid", "departing-sid", "--wake", "never")).ShouldSucceed();
+            (await cli.RunAsync("join", "pi-leave", "--as", "remaining",
+                "--sid", "pi-member-sid", "--wake", "pi")).ShouldSucceed();
+
+            var leaving = cli.RunAsync("leave", "pi-leave", "--as", "departing",
+                "--sid", "departing-sid");
+            using var wake = JsonDocument.Parse(await ReadLineAsync(bridge.Process.StandardOutput));
+            var id = wake.RootElement.GetProperty("id").GetString();
+            Assert.Contains("[Parley #1 pending · pi-leave · remaining]",
+                wake.RootElement.GetProperty("notification").GetString());
+
+            await bridge.Process.StandardInput.WriteLineAsync(
+                JsonSerializer.Serialize(new { id, success = true }));
+            await bridge.Process.StandardInput.FlushAsync();
+
+            var left = await leaving;
+            left.ShouldSucceed();
+            Assert.Contains("woke remaining through Pi extension", left.Stderr);
+        }
+        finally
+        {
+            bridge.Process.StandardInput.Close();
+            await bridge.Completion;
+        }
+    }
+
+    [Fact]
     public async Task Live_extension_bridge_is_detected_and_acknowledges_wake_submission()
     {
         using var cli = new CliSandbox();

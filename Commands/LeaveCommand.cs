@@ -22,14 +22,30 @@ public static class LeaveCommand
         {
             ApplyLogLevel(pr);
             var store = Cli.Services.GetRequiredService<ChannelStore>();
+            var wakeClients = Cli.Services.GetRequiredService<WakeClientFactory>();
             var claudeSessions = Cli.Services.GetRequiredService<ClaudeSessionResolver>();
             var channel = ChannelStore.Validate("channel", pr.GetValue(channelArg)!);
             var me = ResolveIdentity(pr);
 
             await claudeSessions.TryRepairMembershipAsync(channel, me.Role, me.Sid, ct);
-            store.Leave(channel, me.Role, me.Sid);
+            var notice = store.Leave(channel, me.Role, me.Sid);
             Stderr.MarkupLine(
-                $"[green]✓[/] left [blue]{Markup.Escape(channel)}[/] and vacated role [blue]{Markup.Escape(me.Role)}[/]");
+                $"[green]✓[/] left [blue]{Markup.Escape(channel)}[/], vacated role [blue]{Markup.Escape(me.Role)}[/], and broadcast [blue]#{notice.Seq}[/]");
+
+            foreach (var membership in store.Participants(channel))
+            {
+                var wakeClient = wakeClients.Create(membership.Wake);
+                if (wakeClient is null) continue;
+
+                var notification = WakeNotification.Create(notice.Seq, channel, membership.Role);
+                var result = await wakeClient.WakeAsync(membership.Sid, notification, ct);
+                if (result.Status == WakeStatus.Woken)
+                    Stderr.MarkupLine($"[green]✓[/] woke [blue]{Markup.Escape(membership.Role)}[/] through {Markup.Escape(wakeClient.TransportName)}");
+                else if (result.Status == WakeStatus.Unavailable)
+                    Stderr.MarkupLine($"[yellow]Note:[/] leave notice remains delivered, but the live {Markup.Escape(wakeClient.TransportName)} endpoint for [blue]{Markup.Escape(membership.Role)}[/] is unavailable. Ask it to run: [blue]parley recv {Markup.Escape(channel)} --as {Markup.Escape(membership.Role)} --last-seen <seq>[/]");
+                else if (result.Status == WakeStatus.Failed)
+                    Stderr.MarkupLine($"[yellow]Note:[/] leave notice remains delivered, but waking [blue]{Markup.Escape(membership.Role)}[/] failed: {Markup.Escape(result.Error ?? "unknown error")}");
+            }
             return 0;
         }));
 
